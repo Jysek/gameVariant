@@ -54,7 +54,7 @@ class Player:
 
         # ---- POWER-UP STATE ----
 
-        # Scudo (assorbe un colpo, poi si rompe)
+        # Scudo (immunita' completa per tutta la durata, non si rompe)
         self.shield_active   = False
         self.shield_timer    = 0
         self.shield_duration = 5 * 60
@@ -156,9 +156,13 @@ class Player:
     def take_damage(self) -> bool:
         """Il giocatore subisce danno: perde una vita.
 
-        Se lo scudo e' attivo, il danno viene ignorato (lo scudo viene
-        gestito separatamente nelle collisioni).
+        Se lo scudo e' attivo, il danno viene completamente ignorato:
+        lo scudo rende il giocatore immune per tutta la sua durata
+        e non si rompe mai (gestito nelle collisioni in game.py).
         Se il giocatore e' invincibile, il danno viene ignorato.
+
+        NOTA: gli asteroidi bypassano scudo e invincibilita' e causano
+        game over immediato (gestito direttamente in game.py).
 
         Returns:
             True se il giocatore e' morto (0 vite), False altrimenti.
