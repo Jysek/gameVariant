@@ -1,5 +1,10 @@
 """
-Classi PowerUpCarrier e FallingPowerUp - sistema power-up.
+Classi PowerUpCarrier e FallingPowerUp -- sistema power-up.
+
+Il carrier scende dall'alto, si ferma per 5 secondi nella meta' superiore
+dello schermo muovendosi orizzontalmente. Il giocatore ha tempo per
+distruggerlo (3-5 HP). Se distrutto, rilascia un power-up cadente.
+Se non distrutto, fugge con uno scatto iperspaziale verso il basso.
 """
 
 import math
@@ -18,17 +23,21 @@ from core.assets import Assets
 class PowerUpCarrier:
     """Navicella carrier che trasporta un power-up.
 
-    Scende dall'alto, si ferma a meta' della meta' superiore dello schermo,
-    si muove orizzontalmente. Il giocatore ha 5 secondi per distruggerla.
-    Se non viene distrutta, scappa verso il basso con scatto iperspaziale.
+    Stati:
+    - DESCENDING: scende dall'alto verso la posizione target.
+    - HOVERING:   si muove orizzontalmente per 5 secondi.
+    - ESCAPING:   fuga iperspaziale verso il basso.
+
+    Args:
+        powerup_type: Tipo di power-up trasportato (opzionale, casuale se None).
     """
 
     STATE_DESCENDING = 0
-    STATE_HOVERING = 1
-    STATE_ESCAPING = 2
+    STATE_HOVERING   = 1
+    STATE_ESCAPING   = 2
 
     def __init__(self, powerup_type=None):
-        self.width = CARRIER_SIZE
+        self.width  = CARRIER_SIZE
         self.height = CARRIER_SIZE
         self.x = random.randint(20, SCREEN_WIDTH - self.width - 20)
         self.y = -self.height
@@ -42,23 +51,23 @@ class PowerUpCarrier:
         self.powerup_type = powerup_type or random.choice(POWERUP_TYPES)
         self.image = Assets.carrier_sprites[self.powerup_type]
 
-        # HP
+        # HP (3-5 colpi per distruggerlo)
         self.max_hp = random.randint(3, 5)
         self.hp = self.max_hp
 
         # Movimento orizzontale
         self.h_speed = random.choice([-2.0, -1.5, -1.0, 1.0, 1.5, 2.0])
-        self.h_direction_timer = 0
-        self.h_change_interval = random.randint(60, 180)
+        self.h_direction_timer  = 0
+        self.h_change_interval  = random.randint(60, 180)
 
-        # Timer di permanenza (5 secondi)
+        # Timer di permanenza (5 secondi a 60 FPS)
         self.hover_timer = 5 * 60
 
         # Fuga iperspaziale
-        self.escape_speed = 0
+        self.escape_speed        = 0
         self.escape_acceleration = 1.5
         self.hit_flash = 0
-        self.trail_particles = []
+        self.trail_particles: list[dict] = []
 
     def update(self):
         """Aggiorna il carrier in base allo stato corrente."""
@@ -91,7 +100,7 @@ class PowerUpCarrier:
             self.h_direction_timer = 0
             self.h_change_interval = random.randint(60, 180)
 
-        # Rimbalzo ai bordi
+        # Rimbalzo ai bordi dello schermo
         if self.x < 10:
             self.x = 10
             self.h_speed = abs(self.h_speed)
@@ -99,17 +108,18 @@ class PowerUpCarrier:
             self.x = SCREEN_WIDTH - self.width - 10
             self.h_speed = -abs(self.h_speed)
 
+        # Countdown del timer di permanenza
         self.hover_timer -= 1
         if self.hover_timer <= 0:
             self.state = PowerUpCarrier.STATE_ESCAPING
             self.escape_speed = 3
 
     def _update_escaping(self):
-        """Scatto iperspaziale verso il basso."""
+        """Scatto iperspaziale verso il basso con accelerazione."""
         self.escape_speed += self.escape_acceleration
         self.y += self.escape_speed
 
-        # Scia
+        # Genera particelle per la scia
         if random.random() < 0.6:
             self.trail_particles.append({
                 "x": self.x + self.width // 2 + random.randint(-10, 10),
@@ -118,16 +128,27 @@ class PowerUpCarrier:
                 "size": random.randint(2, 5),
             })
 
+        # Aggiorna e pulisci particelle
         for p in self.trail_particles:
             p["alpha"] -= 12
             p["size"] = max(0, p["size"] - 0.1)
-        self.trail_particles = [p for p in self.trail_particles if p["alpha"] > 0]
+        self.trail_particles = [
+            p for p in self.trail_particles if p["alpha"] > 0
+        ]
 
+        # Disattiva se fuori schermo
         if self.y > SCREEN_HEIGHT + 50:
             self.alive = False
 
-    def take_damage(self, amount=1):
-        """Il carrier subisce danno. Restituisce True se distrutto."""
+    def take_damage(self, amount=1) -> bool:
+        """Il carrier subisce danno.
+
+        Args:
+            amount: Quantita' di danno.
+
+        Returns:
+            True se il carrier e' stato distrutto, False altrimenti.
+        """
         self.hp -= amount
         self.hit_flash = 6
         if self.hp <= 0:
@@ -137,7 +158,14 @@ class PowerUpCarrier:
         return False
 
     def draw(self, surface):
-        """Disegna il carrier con tutti gli effetti visivi."""
+        """Disegna il carrier con tutti gli effetti visivi.
+
+        Include: scia iperspaziale, flash all'hit, deformazione durante
+        la fuga e HUD (nome, barra HP, timer).
+
+        Args:
+            surface: Surface di destinazione.
+        """
         if not self.alive:
             return
 
@@ -145,26 +173,33 @@ class PowerUpCarrier:
         if self.state == PowerUpCarrier.STATE_ESCAPING:
             self._draw_trail(surface)
 
-        # Sprite
+        # Sprite con eventuale flash bianco
         draw_img = self.image.copy()
         if self.hit_flash > 0 and self.hit_flash % 2 == 0:
-            flash_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            flash_surface = pygame.Surface(
+                (self.width, self.height), pygame.SRCALPHA)
             flash_surface.fill((255, 255, 255, 150))
             draw_img.blit(flash_surface, (0, 0))
 
-        # Deformazione iperspaziale
+        # Deformazione durante la fuga iperspaziale
         if self.state == PowerUpCarrier.STATE_ESCAPING:
-            stretch_h = min(self.height + int(self.escape_speed * 2), self.height * 3)
+            stretch_h = min(
+                self.height + int(self.escape_speed * 2),
+                self.height * 3)
             draw_img = pygame.transform.scale(draw_img, (self.width, stretch_h))
 
         surface.blit(draw_img, (int(self.x), int(self.y)))
 
-        # HUD del carrier (nome, barra HP, timer)
+        # HUD del carrier (solo quando non sta fuggendo)
         if self.state != PowerUpCarrier.STATE_ESCAPING:
             self._draw_carrier_hud(surface)
 
     def _draw_trail(self, surface):
-        """Disegna la scia delle particelle durante la fuga."""
+        """Disegna la scia di particelle durante la fuga iperspaziale.
+
+        Args:
+            surface: Surface di destinazione.
+        """
         for p in self.trail_particles:
             size = int(p["size"])
             if size <= 0:
@@ -177,7 +212,11 @@ class PowerUpCarrier:
             surface.blit(trail_surf, (int(p["x"] - size), int(p["y"] - size)))
 
     def _draw_carrier_hud(self, surface):
-        """Disegna etichetta, barra HP e timer del carrier."""
+        """Disegna etichetta tipo, barra HP e barra timer del carrier.
+
+        Args:
+            surface: Surface di destinazione.
+        """
         color = POWERUP_COLORS.get(self.powerup_type, WHITE)
 
         # Nome del power-up
@@ -190,8 +229,10 @@ class PowerUpCarrier:
         bar_w = self.width
         bar_y = self.y + self.height + 2
         hp_pct = self.hp / self.max_hp
-        pygame.draw.rect(surface, (60, 60, 60), (int(self.x), int(bar_y), bar_w, 4))
-        pygame.draw.rect(surface, color, (int(self.x), int(bar_y), int(bar_w * hp_pct), 4))
+        pygame.draw.rect(
+            surface, (60, 60, 60), (int(self.x), int(bar_y), bar_w, 4))
+        pygame.draw.rect(
+            surface, color, (int(self.x), int(bar_y), int(bar_w * hp_pct), 4))
 
         # Timer countdown
         if self.state == PowerUpCarrier.STATE_HOVERING:
@@ -203,21 +244,40 @@ class PowerUpCarrier:
                 timer_color = YELLOW
             else:
                 timer_color = RED
-            pygame.draw.rect(surface, (40, 40, 40), (int(self.x), int(timer_bar_y), bar_w, 3))
-            pygame.draw.rect(surface, timer_color, (int(self.x), int(timer_bar_y), int(bar_w * timer_pct), 3))
+            pygame.draw.rect(
+                surface, (40, 40, 40),
+                (int(self.x), int(timer_bar_y), bar_w, 3))
+            pygame.draw.rect(
+                surface, timer_color,
+                (int(self.x), int(timer_bar_y), int(bar_w * timer_pct), 3))
 
-    def get_rect(self):
-        return pygame.Rect(self.x + 3, self.y + 3, self.width - 6, self.height - 6)
+    def get_rect(self) -> pygame.Rect:
+        """Restituisce la hitbox del carrier (leggermente ridotta).
+
+        Shrink: 5px per lato.
+        """
+        shrink = 5
+        return pygame.Rect(
+            self.x + shrink,
+            self.y + shrink,
+            self.width - shrink * 2,
+            self.height - shrink * 2,
+        )
 
 
 class FallingPowerUp:
     """Power-up che cade dopo la distruzione di un carrier.
 
-    Se il giocatore lo raccoglie (collisione), applica l'effetto.
+    Cade in linea retta verso il basso. Se il giocatore lo tocca,
+    il power-up viene applicato.
+
+    Args:
+        x, y: Posizione iniziale (angolo superiore sinistro).
+        powerup_type: Tipo di power-up ('vita', 'scudo', 'velocita', 'arma').
     """
 
     def __init__(self, x, y, powerup_type):
-        self.width = POWERUP_ITEM_SIZE
+        self.width  = POWERUP_ITEM_SIZE
         self.height = POWERUP_ITEM_SIZE
         self.x = x
         self.y = y
@@ -228,7 +288,7 @@ class FallingPowerUp:
         self.pulse_timer = 0
 
     def update(self):
-        """Aggiorna il power-up - cade in linea retta."""
+        """Aggiorna il power-up: cade in linea retta."""
         if not self.active:
             return
         self.y += self.fall_speed
@@ -237,14 +297,19 @@ class FallingPowerUp:
             self.active = False
 
     def draw(self, surface):
-        """Disegna il power-up con effetto glow pulsante."""
+        """Disegna il power-up con effetto glow pulsante.
+
+        Args:
+            surface: Surface di destinazione.
+        """
         if not self.active:
             return
 
+        # Glow pulsante
         glow_alpha = int(abs(math.sin(self.pulse_timer)) * 80) + 40
         glow_color = POWERUP_COLORS.get(self.powerup_type, WHITE)
-        glow_size = self.width + 10
-        glow_surf = pygame.Surface((glow_size, glow_size), pygame.SRCALPHA)
+        glow_size  = self.width + 10
+        glow_surf  = pygame.Surface((glow_size, glow_size), pygame.SRCALPHA)
         pygame.draw.circle(
             glow_surf, (*glow_color, glow_alpha),
             (glow_size // 2, glow_size // 2), glow_size // 2,
@@ -252,5 +317,6 @@ class FallingPowerUp:
         surface.blit(glow_surf, (int(self.x - 5), int(self.y - 5)))
         surface.blit(self.image, (int(self.x), int(self.y)))
 
-    def get_rect(self):
+    def get_rect(self) -> pygame.Rect:
+        """Restituisce la hitbox del power-up (dimensione piena, generosa)."""
         return pygame.Rect(self.x, self.y, self.width, self.height)

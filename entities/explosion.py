@@ -1,5 +1,9 @@
 """
-Classe Explosion - effetto esplosione animato tramite GIF.
+Classe Explosion -- effetto esplosione animato tramite GIF.
+
+L'esplosione viene centrata sul punto (x, y) e riproduce tutti i frame
+della GIF explosionGif.gif. Al termine dell'animazione si disattiva
+automaticamente.
 """
 
 import pygame
@@ -23,7 +27,7 @@ class Explosion:
         self.active = True
 
         # Se la dimensione richiesta e' diversa da quella pre-scalata,
-        # generiamo al volo i frame alla taglia giusta.
+        # genera al volo i frame alla taglia corretta.
         if size == EXPLOSION_SIZE:
             self.frames = Assets.explosion_frames
         else:
@@ -33,11 +37,11 @@ class Explosion:
             ]
 
         self.frame_index = 0
-        self.frame_delay = 2  # tick di gioco per ogni frame GIF
+        self.frame_delay = 2   # tick di gioco per ogni frame GIF
         self.frame_timer = 0
 
     def update(self):
-        """Avanza l'animazione; disattiva l'esplosione a fine GIF."""
+        """Avanza l'animazione di un tick; disattiva l'esplosione a fine GIF."""
         self.frame_timer += 1
         if self.frame_timer >= self.frame_delay:
             self.frame_timer = 0
@@ -46,7 +50,11 @@ class Explosion:
                 self.active = False
 
     def draw(self, surface):
-        """Disegna il frame corrente centrato su (x, y)."""
+        """Disegna il frame corrente centrato su (x, y).
+
+        Args:
+            surface: Surface di destinazione.
+        """
         if not self.active:
             return
         frame = self.frames[self.frame_index]
