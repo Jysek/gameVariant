@@ -60,7 +60,7 @@ I power-up appaiono su **navicelle carrier** che scendono dall'alto e si fermano
 | Icona | Tipo | Effetto | Durata |
 |-------|------|---------|--------|
 | ❤️ Vita | Recupera 1 cuore (max 3) | Istantaneo |
-| 🛡️ Scudo | Immunità ai colpi nemici | 5 secondi |
+| 🛡️ Scudo | Immunità completa a colpi e contatti nemici (non si rompe) | 5 secondi |
 | ⚡ Velocità | Boost velocità ×1.8 | 5 secondi |
 | 🔫 Arma | Sparo triplo/quadruplo angolato | 5 secondi |
 
@@ -77,6 +77,7 @@ I power-up appaiono su **navicelle carrier** che scendono dall'alto e si fermano
 - Cadono verticalmente con **scia luminosa realistica**
 - **Indistruttibili** con i laser
 - Collisione = **game over immediato** (ignora scudo e invincibilità)
+- Lo scudo **non protegge** dagli asteroidi: la navicella viene distrutta comunque
 
 ### Carrier power-up
 - Scendono dall'alto e si fermano per 5 secondi

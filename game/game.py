@@ -650,7 +650,8 @@ class Game:
     def _chk_el_vs_player(self, pr):
         """Collisione: laser nemici -> giocatore.
 
-        Lo scudo assorbe il colpo e si disattiva.
+        Se lo scudo e' attivo il laser viene distrutto ma lo scudo
+        resta intatto (immunita' completa per tutta la durata).
         """
         for l in self.enemy_lasers:
             if not l.active:
@@ -658,9 +659,8 @@ class Game:
             if l.get_rect().colliderect(pr):
                 l.active = False
                 if self.player.shield_active:
-                    self.player.shield_active = False
-                    self.player.shield_timer = 0
-                    self.sounds["shield_break"].play()
+                    # Scudo attivo: il giocatore e' immune, lo scudo NON si rompe
+                    self.sounds["shield_active"].play()
                 elif not self.player.invincible:
                     dead = self.player.take_damage()
                     if dead:
@@ -669,21 +669,28 @@ class Game:
                         self.sounds["player_hit"].play()
 
     def _chk_boss_vs_player(self, pr):
-        """Collisione: corpo del boss -> giocatore (morte istantanea o scudo)."""
+        """Collisione: corpo del boss -> giocatore.
+
+        Se lo scudo e' attivo il contatto viene ignorato (immunita'
+        completa). Altrimenti e' morte istantanea.
+        """
         if not (self.boss_active and self.boss and self.boss.alive):
             return
         if self.boss.get_rect().colliderect(pr):
             if self.player.shield_active:
-                self.player.shield_active = False
-                self.player.shield_timer = 0
-                self.sounds["shield_break"].play()
+                # Scudo attivo: il giocatore e' immune, lo scudo NON si rompe
+                pass
             elif not self.player.invincible:
                 self.player.lives = 0
                 self.player.alive = False
                 self._player_death_expl()
 
     def _chk_formation_vs_player(self, pr):
-        """Collisione: corpo nemico -> giocatore."""
+        """Collisione: corpo nemico -> giocatore.
+
+        Se lo scudo e' attivo il nemico viene distrutto ma il giocatore
+        e lo scudo restano intatti (immunita' completa).
+        """
         for g in self.formation_groups:
             for rect, enemy in g.get_alive_rects():
                 if rect.colliderect(pr):
@@ -692,9 +699,8 @@ class Game:
                         enemy.x + enemy.width // 2,
                         enemy.y + enemy.height // 2))
                     if self.player.shield_active:
-                        self.player.shield_active = False
-                        self.player.shield_timer = 0
-                        self.sounds["shield_break"].play()
+                        # Scudo attivo: il giocatore e' immune, lo scudo NON si rompe
+                        self.sounds["shield_active"].play()
                     elif not self.player.invincible:
                         dead = self.player.take_damage()
                         if dead:
@@ -705,27 +711,25 @@ class Game:
     def _chk_asteroid_player(self, pr):
         """Collisione: asteroide -> giocatore.
 
-        Se scudo attivo: assorbe il colpo e distrugge l'asteroide.
-        Altrimenti: morte istantanea.
+        L'asteroide distrugge la navicella SEMPRE, anche se lo scudo
+        e' attivo o il giocatore e' invincibile. Game over immediato.
         """
         for a in self.asteroids:
             if not a.active:
                 continue
             if a.get_rect().colliderect(pr):
-                if self.player.shield_active:
-                    self.player.shield_active = False
-                    self.player.shield_timer = 0
-                    self.sounds["shield_break"].play()
-                    a.deactivate()
-                elif not self.player.invincible:
-                    self.player.lives = 0
-                    self.player.alive = False
-                    self.explosions.append(Explosion(
-                        self.player.x + self.player.width // 2,
-                        self.player.y + self.player.height // 2,
-                        size=128))
-                    self.sounds["game_over"].play()
-                return  # Un solo asteroide per frame
+                # L'asteroide ignora scudo e invincibilita': morte istantanea
+                self.player.shield_active = False
+                self.player.shield_timer = 0
+                self.player.invincible = False
+                self.player.lives = 0
+                self.player.alive = False
+                self.explosions.append(Explosion(
+                    self.player.x + self.player.width // 2,
+                    self.player.y + self.player.height // 2,
+                    size=128))
+                self.sounds["game_over"].play()
+                return  # Game over immediato
 
     def _chk_pu_player(self, pr):
         """Collisione: power-up cadente -> giocatore (raccolta)."""
