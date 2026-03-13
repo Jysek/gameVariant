@@ -2,7 +2,11 @@
 Classe Player -- navicella del giocatore.
 
 Gestisce: movimento, sistema di vite, invincibilita' temporanea,
-power-up (scudo, velocita', arma tripla) e sparo.
+power-up (scudo, velocita', arma 7 livelli) e sparo.
+Il sistema arma ha 7 livelli (PRD Star Defender 4):
+  1: Single  2: Double  3: Triple 15°  4: 5-way Spread
+  5: Laser beam  6: Homing  7: MAX Combo
+La nave VIP (indice 9) ha doppio laser di default.
 """
 
 import math
@@ -10,7 +14,7 @@ import pygame
 
 from core.constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
-    CYAN, GREEN, MAGENTA,
+    CYAN, GREEN, MAGENTA, NUM_SHIPS, VIP_SHIP_INDEX, SHIP_COLORS,
 )
 from core.assets import Assets
 from entities.laser import Laser, AngledLaser
@@ -20,10 +24,10 @@ class Player:
     """Navicella del giocatore con sistema di vite, power-up e sparo.
 
     Args:
-        ship_type: Indice della nave scelta (0=Falcon, 1=Viper, 2=Phoenix).
+        ship_type: Indice della nave scelta (0-9).
     """
 
-    MAX_LIVES = 3
+    MAX_LIVES = 4  # PRD: max 4 vite
 
     def __init__(self, ship_type=0):
         self.width  = 60
@@ -36,13 +40,13 @@ class Player:
         self.last_shot_time = 0
         self.shot_cooldown = 300   # millisecondi
         self.alive = True
+        self.is_vip = (ship_type == VIP_SHIP_INDEX)
 
         # ---- Sistema di vite ----
-        self.lives = Player.MAX_LIVES
+        self.lives = 3  # Inizia con 3, max 4
 
         # Colori associati ad ogni tipo di nave
-        self.colors = [CYAN, GREEN, MAGENTA]
-        self.color = self.colors[ship_type]
+        self.color = SHIP_COLORS[ship_type % len(SHIP_COLORS)]
 
         # Limiti di movimento verticale (non puo' salire sopra 1/3 dello schermo)
         self.min_y = SCREEN_HEIGHT // 3
@@ -52,20 +56,26 @@ class Player:
         self.invincible_timer = 0
         self.invincible_duration = 2 * 60   # 2 secondi (120 frame)
 
+        # ---- WEAPON LEVEL SYSTEM (PRD: 7 livelli) ----
+        # Lv1=Single, Lv2=Double, Lv3=Triple, Lv4=5-way,
+        # Lv5=Laser beam, Lv6=Homing, Lv7=MAX Combo
+        self.weapon_level = 2 if self.is_vip else 1
+        self.max_weapon_level = 7
+
         # ---- POWER-UP STATE ----
 
-        # Scudo (immunita' completa per tutta la durata, non si rompe)
+        # Scudo (immunita' completa, PRD: 15 secondi, non stackabile)
         self.shield_active   = False
         self.shield_timer    = 0
-        self.shield_duration = 5 * 60
+        self.shield_duration = 15 * 60  # PRD: 15 secondi
 
-        # Boost velocita'
+        # Boost velocita' (PRD: +50% per 8 secondi)
         self.speed_boost_active     = False
         self.speed_boost_timer      = 0
-        self.speed_boost_duration   = 5 * 60
-        self.speed_boost_multiplier = 1.8
+        self.speed_boost_duration   = 8 * 60  # PRD: 8 secondi
+        self.speed_boost_multiplier = 1.5     # PRD: +50%
 
-        # Arma tripla
+        # Arma tripla (legacy -- ora gestita dal weapon_level)
         self.triple_shot_active   = False
         self.triple_shot_timer    = 0
         self.triple_shot_duration = 5 * 60
@@ -146,6 +156,10 @@ class Player:
             self.speed_boost_timer = self.speed_boost_duration
             self.speed = self.base_speed * self.speed_boost_multiplier
         elif powerup_type == "arma":
+            # PRD: weapon upgrade incrementa di 1 livello
+            if self.weapon_level < self.max_weapon_level:
+                self.weapon_level += 1
+            # Anche attiva il triple shot per backward compat
             self.triple_shot_active = True
             self.triple_shot_timer = self.triple_shot_duration
 
@@ -156,13 +170,7 @@ class Player:
     def take_damage(self) -> bool:
         """Il giocatore subisce danno: perde una vita.
 
-        Se lo scudo e' attivo, il danno viene completamente ignorato:
-        lo scudo rende il giocatore immune per tutta la sua durata
-        e non si rompe mai (gestito nelle collisioni in game.py).
-        Se il giocatore e' invincibile, il danno viene ignorato.
-
-        NOTA: gli asteroidi bypassano scudo e invincibilita' e causano
-        game over immediato (gestito direttamente in game.py).
+        PRD: prendere danno riduce il weapon_level di 1.
 
         Returns:
             True se il giocatore e' morto (0 vite), False altrimenti.
@@ -171,6 +179,10 @@ class Player:
             return False
 
         self.lives -= 1
+        # PRD: weapon level scende di 1 al danno
+        if self.weapon_level > 1:
+            self.weapon_level -= 1
+
         if self.lives <= 0:
             self.lives = 0
             self.alive = False
@@ -186,7 +198,16 @@ class Player:
     # ========================================================================
 
     def shoot(self, current_time):
-        """Spara laser. Gestisce nave Phoenix (doppio cannone) e power-up arma.
+        """Spara laser basato sul livello arma corrente.
+
+        Weapon levels:
+          1: Single shot
+          2: Double shot (VIP default)
+          3: Triple 15 gradi
+          4: 5-way spread
+          5: Laser beam (velocita' doppia)
+          6: Homing (angolati convergenti)
+          7: MAX Combo (tutto insieme)
 
         Args:
             current_time: Tempo corrente in ms (da pygame.time.get_ticks()).
@@ -200,65 +221,49 @@ class Player:
             return []
 
         self.last_shot_time = current_time
-        current_sprite = Assets.laser_sprites[self.ship_type]
+        sprite = Assets.laser_sprites[self.ship_type % len(Assets.laser_sprites)]
+        left_sp = Assets.laser_left_angular[self.ship_type % len(Assets.laser_left_angular)]
+        right_sp = Assets.laser_right_angular[self.ship_type % len(Assets.laser_right_angular)]
+        cx = self.x + self.width // 2 - 10
+        wl = self.weapon_level
 
-        if self.ship_type == 2:
-            return self._shoot_phoenix(current_sprite)
-        else:
-            return self._shoot_standard(current_sprite)
+        lasers = []
 
-    def _shoot_phoenix(self, sprite):
-        """Sparo doppio cannone della nave Phoenix.
+        # Livello 1: Single shot
+        if wl >= 1:
+            lasers.append(Laser(cx, self.y, -7, self.color, sprite=sprite))
 
-        Args:
-            sprite: Sprite del laser per questa nave.
+        # Livello 2: Double shot (o VIP default)
+        if wl >= 2 or self.is_vip:
+            offset = 16
+            lasers.clear()
+            lasers.append(Laser(cx - offset, self.y, -7, self.color, sprite=sprite))
+            lasers.append(Laser(cx + offset, self.y, -7, self.color, sprite=sprite))
 
-        Returns:
-            Lista di Laser (2 normali + 2 angolati se arma tripla attiva).
-        """
-        cannon_offset = 16
-        center_x = self.x + self.width // 2 - 10
+        # Livello 3: Triple 15 gradi
+        if wl >= 3:
+            lasers.append(AngledLaser(cx, self.y, -7, -15, self.color, sprite=left_sp))
+            lasers.append(AngledLaser(cx, self.y, -7,  15, self.color, sprite=right_sp))
 
-        lasers = [
-            Laser(center_x - cannon_offset, self.y, -7, self.color, sprite=sprite),
-            Laser(center_x + cannon_offset, self.y, -7, self.color, sprite=sprite),
-        ]
+        # Livello 4: 5-way spread
+        if wl >= 4:
+            lasers.append(AngledLaser(cx, self.y, -7, -30, self.color, sprite=left_sp))
+            lasers.append(AngledLaser(cx, self.y, -7,  30, self.color, sprite=right_sp))
 
-        if self.triple_shot_active:
-            left_sprite  = Assets.laser_left_angular[self.ship_type]
-            right_sprite = Assets.laser_right_angular[self.ship_type]
-            lasers.extend([
-                AngledLaser(center_x - cannon_offset, self.y, -7, -45,
-                            self.color, sprite=left_sprite),
-                AngledLaser(center_x + cannon_offset, self.y, -7,  45,
-                            self.color, sprite=right_sprite),
-            ])
+        # Livello 5: Laser beam (colpo dritto extra veloce)
+        if wl >= 5:
+            beam = Laser(cx, self.y, -12, self.color, sprite=sprite)
+            lasers.append(beam)
 
-        return lasers
+        # Livello 6: Homing (angolati convergenti)
+        if wl >= 6:
+            lasers.append(AngledLaser(cx - 20, self.y, -8, 8, self.color, sprite=right_sp))
+            lasers.append(AngledLaser(cx + 20, self.y, -8, -8, self.color, sprite=left_sp))
 
-    def _shoot_standard(self, sprite):
-        """Sparo singolo cannone centrale (Falcon / Viper).
-
-        Args:
-            sprite: Sprite del laser per questa nave.
-
-        Returns:
-            Lista di Laser (1 normale + 2 angolati se arma tripla attiva).
-        """
-        center_x = self.x + self.width // 2 - 10
-        lasers = [
-            Laser(center_x, self.y, -7, self.color, sprite=sprite),
-        ]
-
-        if self.triple_shot_active:
-            left_sprite  = Assets.laser_left_angular[self.ship_type]
-            right_sprite = Assets.laser_right_angular[self.ship_type]
-            lasers.extend([
-                AngledLaser(center_x, self.y, -7, -45,
-                            self.color, sprite=left_sprite),
-                AngledLaser(center_x, self.y, -7,  45,
-                            self.color, sprite=right_sprite),
-            ])
+        # Livello 7: MAX Combo (laser addizionale piu' largo)
+        if wl >= 7:
+            lasers.append(Laser(cx - 8, self.y - 5, -9, self.color, sprite=sprite))
+            lasers.append(Laser(cx + 8, self.y - 5, -9, self.color, sprite=sprite))
 
         return lasers
 
