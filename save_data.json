@@ -3,6 +3,13 @@
   "unlocked_ships": [
     true,
     true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
     false
   ],
   "best_scores": [
