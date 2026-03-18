@@ -123,6 +123,9 @@ class FormationGroup:
         # Timer per la discesa periodica
         self._drop_timer = 0
 
+        # Cache dei nemici vivi (aggiornata ad ogni update)
+        self._cached_alive: list[Enemy] = list(self.enemies)
+
         # Laser pendenti (trasferiti a ``game.py`` ad ogni update)
         self.pending_lasers: list = []
 
@@ -132,8 +135,12 @@ class FormationGroup:
 
     @property
     def alive_enemies(self) -> list[Enemy]:
-        """Lista dei nemici ancora vivi nel gruppo."""
-        return [e for e in self.enemies if e.alive]
+        """Lista dei nemici ancora vivi nel gruppo (usa cache)."""
+        return self._cached_alive
+
+    def _refresh_alive_cache(self) -> None:
+        """Ricalcola la cache dei nemici vivi."""
+        self._cached_alive = [e for e in self.enemies if e.alive]
 
     @property
     def is_empty(self) -> bool:
@@ -177,8 +184,9 @@ class FormationGroup:
             perde vita).
         """
         self.pending_lasers.clear()
+        self._refresh_alive_cache()
 
-        if self.is_empty:
+        if not self._cached_alive:
             return False
 
         # -- Movimento orizzontale con rimbalzo --

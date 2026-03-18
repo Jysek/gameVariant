@@ -75,6 +75,14 @@ class Boss:
         # Contatore pattern per la variante spirale
         self._spiral_angle = 0.0
 
+        # Font per la barra vita (creato una sola volta, non ad ogni frame)
+        self._hp_font = pygame.font.Font(None, 20)
+
+        # Cache dello sprite scalato (evita rescale ad ogni frame)
+        self._cached_scaled: pygame.Surface | None = None
+        self._cached_w = 0
+        self._cached_h = 0
+
     # ------------------------------------------------------------------
     # UPDATE
     # ------------------------------------------------------------------
@@ -118,6 +126,7 @@ class Boss:
             self.frame_timer = 0
             if self.frames:
                 self.frame_idx = (self.frame_idx + 1) % len(self.frames)
+                self._cached_scaled = None  # Invalida cache al cambio frame
 
         # Hit flash countdown
         if self.hit_flash > 0:
@@ -275,9 +284,18 @@ class Boss:
             h2 = self.height + pulse * 2
             scaled = pygame.transform.scale(frame, (w2, h2))
             surf.blit(scaled, (int(self.x) - pulse, int(self.y) - pulse))
+            # Invalida cache dopo il flash
+            self._cached_scaled = None
         else:
-            scaled = pygame.transform.scale(frame, (self.width, self.height))
-            surf.blit(scaled, (int(self.x), int(self.y)))
+            # Usa cache se dimensioni non sono cambiate
+            if (self._cached_scaled is None
+                    or self._cached_w != self.width
+                    or self._cached_h != self.height):
+                self._cached_scaled = pygame.transform.scale(
+                    frame, (self.width, self.height))
+                self._cached_w = self.width
+                self._cached_h = self.height
+            surf.blit(self._cached_scaled, (int(self.x), int(self.y)))
 
     def draw_health_bar(self, surf: pygame.Surface) -> None:
         """Disegna la barra vita del boss in cima allo schermo."""
@@ -313,8 +331,7 @@ class Boss:
         # Etichetta
         variant_names = ["BOSS", "BOSS BURST", "BOSS FAN", "BOSS SPIRAL", "BOSS SHOTGUN"]
         vname = variant_names[self.variant] if self.variant < len(variant_names) else "BOSS"
-        font = pygame.font.Font(None, 20)
-        label = font.render(f"{vname}  {self.hp}/{self.max_hp}", True, WHITE)
+        label = self._hp_font.render(f"{vname}  {self.hp}/{self.max_hp}", True, WHITE)
         surf.blit(label, (bx + bw // 2 - label.get_width() // 2, by + 1))
 
     def get_rect(self) -> pygame.Rect:
