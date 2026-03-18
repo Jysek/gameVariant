@@ -35,7 +35,7 @@ STAR_WHITE = (200, 200, 220)
 # DIMENSIONI SPRITE (pixel)
 # ============================================================================
 ENEMY_W          = 60      # larghezza nemico base (UFO e' piu' largo che alto)
-ENEMY_H          = 44      # altezza nemico base
+ENEMY_H          = 60      # altezza nemico base
 ASTEROID_SIZE    = 60
 CARRIER_SIZE     = 55
 POWERUP_ITEM_SIZE = 35

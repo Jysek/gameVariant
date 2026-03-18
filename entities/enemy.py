@@ -98,11 +98,10 @@ class Enemy:
     # ------------------------------------------------------------------
 
     def take_damage(self, amount: int = 1) -> bool:
-        """Applica danno al nemico e attiva lo shake visivo.
+        """Applica danno al nemico e attiva shake + mini-esplosione.
 
         Lo shake viene attivato **solo** se il nemico sopravvive (multi-HP).
-        Se il nemico muore, non c'e' bisogno di feedback perche' segue
-        immediatamente l'esplosione.
+        Mini-esplosione su ogni hit se multi-HP.
 
         Args:
             amount: Quantita' di danno da applicare.
@@ -111,6 +110,12 @@ class Enemy:
             ``True`` se il nemico e' stato ucciso, ``False`` altrimenti.
         """
         self.hp -= amount
+        
+        # Mini-esplosione se ha ancora HP (multi-HP)
+        if self.hp > 0 and self.max_hp > 1:
+            from entities.explosion import Explosion
+            Explosion(self.x + self.width // 2, self.y + self.height // 2, size=32)
+        
         if self.hp <= 0:
             self.hp = 0
             self.alive = False

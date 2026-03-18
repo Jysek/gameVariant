@@ -148,7 +148,7 @@ class Game:
         self.boss_warning_timer    = 0
         self.boss_warning_dur      = 180       # 3 secondi di avviso
         self.boss_defeated_count   = 0
-        self.next_boss_time        = random.randint(35 * 60, 65 * 60)
+        self.next_boss_time        = random.randint(70 * 60, 130 * 60)
         self.boss_cooldown         = 0
 
         # Carrier power-up
@@ -168,7 +168,7 @@ class Game:
         self.rain_dur            = 0         # calcolata in _start_rain
         self.rain_spawn_t        = 0
         self.rain_spawn_i        = 35        # intervallo spawn singolo asteroide
-        self.next_rain           = random.randint(50 * 60, 100 * 60)
+        self.next_rain           = random.randint(180 * 60, 360 * 60)
         self.rain_cooldown       = 0
         self.rain_max            = 0         # max asteroidi contemporanei
         self.rain_draining: bool = False
@@ -338,8 +338,8 @@ class Game:
         self.boss = None
 
         # Cooldown e prossimo boss
-        self.boss_cooldown  = random.randint(18 * 60, 38 * 60)
-        self.next_boss_time = self.game_time + random.randint(30 * 60, 60 * 60)
+        self.boss_cooldown  = random.randint(36 * 60, 76 * 60)
+        self.next_boss_time = self.game_time + random.randint(60 * 60, 120 * 60)
         self.enemy_lasers.clear()
 
     # ======================================================================
@@ -370,8 +370,8 @@ class Game:
         self.rain_warning  = False
         self.rain_draining = False
 
-        base_dur = 8 * 60 + self._diff_level * 60
-        self.rain_dur     = min(base_dur, 16 * 60)
+        base_dur = 20 * 60 + self._diff_level * 20
+        self.rain_dur     = min(base_dur, 40 * 60)
         self.rain_timer   = 0
         self.rain_spawn_t = 0
         self.rain_spawn_i = max(22, 45 - self._diff_level * 3)
@@ -397,8 +397,8 @@ class Game:
     def _finish_rain_drain(self) -> None:
         """Chiamata quando tutti gli asteroidi della pioggia sono usciti."""
         self.rain_draining = False
-        self.rain_cooldown = random.randint(45 * 60, 90 * 60)
-        self.next_rain     = self.game_time + random.randint(50 * 60, 100 * 60)
+        self.rain_cooldown = random.randint(120 * 60, 240 * 60)
+        self.next_rain     = self.game_time + random.randint(180 * 60, 360 * 60)
         clear_registry()
 
     # ======================================================================
@@ -790,7 +790,7 @@ class Game:
 
         if self.score > self.save["high_score"]:
             self.save["high_score"] = self.score
-        if self.score >= 50 and not self.save["unlocked_ships"][2]:
+        if self.score >= 150 and not self.save["unlocked_ships"][2]:
             self.save["unlocked_ships"][2] = True
             self.sounds["unlock"].play()
 
@@ -963,7 +963,7 @@ class Game:
                     "Doppia ala -- agile",
                     "Doppio cannone -- VIP"]
         colors  = [CYAN, GREEN, MAGENTA]
-        unlocks = [0, 0, 50]
+        unlocks = [0, 0, 150]
         for i in range(3):
             self._ship_card(i, names[i], descs[i], colors[i], unlocks[i])
 
@@ -1159,7 +1159,7 @@ class Game:
 
         # Sfondo punteggio
         bg = pygame.Surface((200, 40), pygame.SRCALPHA)
-        bg.fill((0, 0, 0, 150))
+        bg.fill((0, 0, 0, 0))
         self.screen.blit(bg, (10, hud_y))
 
         sc = self.font_medium.render(f"Punti: {self.score}", True, WHITE)
@@ -1241,7 +1241,7 @@ class Game:
         py = hud_y + 58
         for name, col, secs_left, pct in active:
             bg = pygame.Surface((130, 18), pygame.SRCALPHA)
-            bg.fill((0, 0, 0, 150))
+            bg.fill((0, 0, 0, 0))
             self.screen.blit(bg, (10, py))
             lbl = self.font_tiny.render(f"{name} {secs_left:.1f}s", True, col)
             self.screen.blit(lbl, (14, py + 1))

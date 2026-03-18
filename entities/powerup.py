@@ -67,12 +67,29 @@ class PowerUpCarrier:
         self.escape_speed        = 0
         self.escape_acceleration = 1.5
         self.hit_flash = 0
+        self.shake_timer = 0
+        self.shake_offset = (0, 0)
         self.trail_particles: list[dict] = []
+
+        # Shake effect
+        self.shake_timer = 0
+        self.shake_offset = (0, 0)
 
     def update(self):
         """Aggiorna il carrier in base allo stato corrente."""
         if not self.alive:
             return
+        
+        if self.shake_timer > 0:
+            import random
+            self.shake_offset = (
+                random.randint(-3, 3),
+                random.randint(-2, 2)
+            )
+            self.shake_timer -= 1
+        else:
+            self.shake_offset = (0, 0)
+
 
         if self.hit_flash > 0:
             self.hit_flash -= 1
@@ -141,7 +158,7 @@ class PowerUpCarrier:
             self.alive = False
 
     def take_damage(self, amount=1) -> bool:
-        """Il carrier subisce danno.
+        """Il carrier subisce danno con mini-esplosione se multi-HP.
 
         Args:
             amount: Quantita' di danno.
@@ -150,7 +167,13 @@ class PowerUpCarrier:
             True se il carrier e' stato distrutto, False altrimenti.
         """
         self.hp -= amount
-        self.hit_flash = 6
+        self.shake_timer = 12
+        
+        # Mini-esplosione se ha ancora HP (come nemici/boss)
+        if self.hp > 0 and self.max_hp > 1:
+            from entities.explosion import Explosion
+            Explosion(self.x + self.width // 2, self.y + self.height // 2, size=32)
+        
         if self.hp <= 0:
             self.hp = 0
             self.alive = False
@@ -173,22 +196,19 @@ class PowerUpCarrier:
         if self.state == PowerUpCarrier.STATE_ESCAPING:
             self._draw_trail(surface)
 
-        # Sprite con eventuale flash bianco
+        # Sprite con shake (no flash bianco)
         draw_img = self.image.copy()
-        if self.hit_flash > 0 and self.hit_flash % 2 == 0:
-            flash_surface = pygame.Surface(
-                (self.width, self.height), pygame.SRCALPHA)
-            flash_surface.fill((255, 255, 255, 150))
-            draw_img.blit(flash_surface, (0, 0))
-
+        
         # Deformazione durante la fuga iperspaziale
         if self.state == PowerUpCarrier.STATE_ESCAPING:
             stretch_h = min(
                 self.height + int(self.escape_speed * 2),
                 self.height * 3)
             draw_img = pygame.transform.scale(draw_img, (self.width, stretch_h))
-
-        surface.blit(draw_img, (int(self.x), int(self.y)))
+        
+        shake_x = int(self.x + self.shake_offset[0])
+        shake_y = int(self.y + self.shake_offset[1])
+        surface.blit(draw_img, (shake_x, shake_y))
 
         # HUD del carrier (solo quando non sta fuggendo)
         if self.state != PowerUpCarrier.STATE_ESCAPING:
