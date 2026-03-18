@@ -16,7 +16,6 @@ from PIL import Image
 from core.constants import (
     ENEMY_SIZE, ASTEROID_SIZE, CARRIER_SIZE,
     POWERUP_ITEM_SIZE, EXPLOSION_SIZE, POWERUP_TYPES,
-    NUM_SHIPS, NUM_BOSS_VARIANTS,
 )
 
 # Dimensioni laser pre-scalati
@@ -55,12 +54,6 @@ def _gif_frames(path):
     return frames
 
 
-def _png_to_surface(path):
-    """Carica un PNG con Pillow e lo converte in Surface Pygame con alpha."""
-    img = Image.open(path).convert("RGBA")
-    return pygame.image.fromstring(img.tobytes(), img.size, "RGBA")
-
-
 class Assets:
     """Contenitore statico per tutti gli asset grafici del gioco.
 
@@ -70,10 +63,10 @@ class Assets:
 
     _loaded = False
 
-    # Navi del giocatore (10 tipi -- 9 standard + 1 VIP)
+    # Navi del giocatore (3 tipi)
     player_ships = []
 
-    # Laser (sprite pre-scalati -- uno per tipo generico, VIP usa doppio)
+    # Laser (sprite pre-scalati per ciascun tipo di nave)
     laser_sprites       = []
     laser_left_angular  = []
     laser_right_angular = []
@@ -94,13 +87,8 @@ class Assets:
     carrier_sprites = {}
     powerup_sprites = {}
 
-    # Boss varianti (lista di liste di frame)
-    # boss_variants[0] = frame da boss.gif (animata)
-    # boss_variants[1..3] = [singolo frame] da boss_1/2/3.png
-    boss_variants    = []
-    boss_frames      = []  # backward compat -- punta a boss_variants[0]
-
-    # Esplosioni (frame da GIF)
+    # Boss e esplosioni (frame da GIF)
+    boss_frames          = []
     explosion_frames     = []
     explosion_frames_raw = []
 
@@ -132,29 +120,25 @@ class Assets:
                 (_LASER_W, _LASER_H),
             )
 
-        # ---- Navi del giocatore (10 da ship_sel_0..9.png) ----
-        cls.player_ships = []
-        for i in range(NUM_SHIPS):
-            path = os.path.join(assets_dir, f"ship_sel_{i}.png")
-            if os.path.exists(path):
-                s = _png_to_surface(path)
-                cls.player_ships.append(s)
-            else:
-                # Fallback: usa le vecchie navi se disponibili
-                fallback = ["ship.png", "ship2.png", "ship3.png"]
-                fb_name = fallback[i % len(fallback)]
-                cls.player_ships.append(img(fb_name))
+        # ---- Navi del giocatore ----
+        cls.player_ships = [
+            img("ship.png"),
+            img("ship2.png"),
+            img("ship3.png"),
+        ]
 
         # ---- Laser ----
-        # Prepara sprite laser per ogni tipo di nave
-        # Usiamo 3 set base e li cicliamo per le 10 navi
-        base_lasers = [lz("11.png"), lz("16.png"), lz("12.png")]
-        base_left   = [lz("11LeftAngular.png"), lz("16LeftAngular.png"), lz("12LeftAngular.png")]
-        base_right  = [lz("11RightAngular.png"), lz("16RightAngular.png"), lz("12RightAngular.png")]
-
-        cls.laser_sprites       = [base_lasers[i % 3] for i in range(NUM_SHIPS)]
-        cls.laser_left_angular  = [base_left[i % 3] for i in range(NUM_SHIPS)]
-        cls.laser_right_angular = [base_right[i % 3] for i in range(NUM_SHIPS)]
+        cls.laser_sprites = [lz("11.png"), lz("16.png"), lz("12.png")]
+        cls.laser_left_angular = [
+            lz("11LeftAngular.png"),
+            lz("16LeftAngular.png"),
+            lz("12LeftAngular.png"),
+        ]
+        cls.laser_right_angular = [
+            lz("11RightAngular.png"),
+            lz("16RightAngular.png"),
+            lz("12RightAngular.png"),
+        ]
         cls.enemy_laser_sprite_scaled = lz("14.png")
 
         # ---- Nemici ----
@@ -183,27 +167,8 @@ class Assets:
             cls.powerup_sprites[pt] = img(
                 f"powerup_{pt}.png", (POWERUP_ITEM_SIZE, POWERUP_ITEM_SIZE))
 
-        # ---- Boss varianti ----
-        cls.boss_variants = []
-
-        # Variante 0: GIF animata originale
-        gif_path = os.path.join(assets_dir, "boss.gif")
-        if os.path.exists(gif_path):
-            cls.boss_variants.append(_gif_frames(gif_path))
-        else:
-            cls.boss_variants.append([])
-
-        # Varianti 1-3: PNG statici (boss_1, boss_2, boss_3)
-        for bi in range(1, NUM_BOSS_VARIANTS):
-            png_path = os.path.join(assets_dir, f"boss_{bi}.png")
-            if os.path.exists(png_path):
-                surf = _png_to_surface(png_path)
-                cls.boss_variants.append([surf])
-            else:
-                cls.boss_variants.append([])
-
-        # Backward compat
-        cls.boss_frames = cls.boss_variants[0] if cls.boss_variants else []
+        # ---- Boss (GIF animata) ----
+        cls.boss_frames = _gif_frames(os.path.join(assets_dir, "boss.gif"))
 
         # ---- Esplosioni (GIF animata) ----
         cls.explosion_frames_raw = _gif_frames(
