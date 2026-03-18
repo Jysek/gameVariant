@@ -7,8 +7,6 @@ Salva/carica record, sblocchi navicelle e top punteggi da un file JSON.
 import json
 import os
 
-from core.constants import NUM_SHIPS
-
 
 def _get_save_path():
     """Restituisce il percorso del file di salvataggio."""
@@ -22,10 +20,9 @@ def _get_save_path():
 SAVE_FILE = _get_save_path()
 
 # Dati di default per una prima installazione
-# Le prime 2 navi sbloccate, le altre richiedono punteggio crescente
 _DEFAULT_DATA = {
     "high_score": 0,
-    "unlocked_ships": [True, True] + [False] * (NUM_SHIPS - 2),
+    "unlocked_ships": [True, True, False],  # Nave 1 e 2 sbloccate, Nave 3 bloccata
     "best_scores": [],
 }
 
@@ -44,9 +41,6 @@ def load_save_data():
                 for key, default_value in _DEFAULT_DATA.items():
                     if key not in data:
                         data[key] = default_value
-                # Assicurati che la lista unlocked_ships abbia la lunghezza corretta
-                while len(data["unlocked_ships"]) < NUM_SHIPS:
-                    data["unlocked_ships"].append(False)
                 return data
     except (json.JSONDecodeError, IOError):
         pass
