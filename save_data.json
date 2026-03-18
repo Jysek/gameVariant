@@ -1,20 +1,21 @@
 {
-  "high_score": 33,
+  "high_score": 281,
   "unlocked_ships": [
     true,
     true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
     false
   ],
   "best_scores": [
-    33,
-    28,
-    27,
-    21,
-    21,
-    18,
-    17,
-    15,
-    11,
-    9
+    281,
+    177
   ]
 }
