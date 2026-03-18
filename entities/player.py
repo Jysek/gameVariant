@@ -14,6 +14,7 @@ import pygame
 from core.constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT, PLAYER_W, PLAYER_H,
     CYAN, GREEN, MAGENTA, SHIP_COLORS, NUM_PLAYER_SHIPS,
+    SHIP_STATS,
 )
 from core.assets import Assets
 from entities.laser import Laser, AngledLaser
@@ -33,11 +34,16 @@ class Player:
         self.height = PLAYER_H
         self.x: float = SCREEN_WIDTH // 2 - self.width // 2
         self.y: float = SCREEN_HEIGHT - 80
-        self.base_speed = 5
-        self.speed = self.base_speed
         self.ship_type = ship_type % NUM_PLAYER_SHIPS
+
+        # Statistiche specifiche per nave
+        stats = SHIP_STATS[self.ship_type] if self.ship_type < len(SHIP_STATS) else SHIP_STATS[0]
+        self.base_speed = int(5 * stats["speed"])
+        self.speed = self.base_speed
+        self.shot_cooldown = int(300 * stats["fire_rate"])
+        self.damage = stats.get("damage", 1)
+
         self.last_shot_time = 0
-        self.shot_cooldown  = 300
         self.alive = True
 
         # Sistema di vite
