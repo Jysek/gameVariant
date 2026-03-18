@@ -48,6 +48,12 @@ from world.starfield import StarField
 _MIN_GROUP_V_GAP = 140
 
 
+def _fmt_time(total_secs: int) -> str:
+    """Formatta i secondi come M:SS."""
+    m, s = divmod(total_secs, 60)
+    return f"{m}:{s:02d}"
+
+
 class Game:
     """Classe principale del gioco."""
 
@@ -83,6 +89,9 @@ class Game:
 
         # Pagina corrente nella selezione navi (4 navi per pagina)
         self._ship_page: int = 0
+
+        # Risultato sblocco navi (salvato da _game_over per draw_game_over)
+        self._newly_unlocked: list[int] = []
 
         self.reset_game()
 
@@ -130,7 +139,6 @@ class Game:
         self.boss_warning_dur      = 180
         self.boss_defeated_count   = 0
         self.next_boss_time        = random.randint(70 * 60, 130 * 60)
-        self.boss_cooldown         = 0
 
         # Carrier power-up
         self.carrier_timer    = 0
@@ -253,9 +261,6 @@ class Game:
             return
         if self.rain_active or self.rain_warning or self.rain_draining:
             return
-        if self.boss_cooldown > 0:
-            self.boss_cooldown -= 1
-            return
         if self.game_time >= self.next_boss_time:
             self.boss_warning = True
             self.boss_warning_timer = 0
@@ -293,7 +298,6 @@ class Game:
         self.boss_active = False
         self.boss = None
 
-        self.boss_cooldown  = random.randint(36 * 60, 76 * 60)
         self.next_boss_time = self.game_time + random.randint(60 * 60, 120 * 60)
         self.enemy_lasers.clear()
 
@@ -626,14 +630,14 @@ class Game:
             return
         if self.boss.get_rect().colliderect(pr):
             if self.player.shield_active:
-                pass
+                self.sounds["shield_active"].play()
             elif not self.player.invincible:
                 self.player.lives = 0
                 self.player.alive = False
                 self._player_death_expl()
 
     def _chk_formation_vs_player(self, pr: pygame.Rect) -> None:
-        """Corpo nemico -> giocatore."""
+        """Corpo nemico -> giocatore (max 1 danno per frame)."""
         for group in self.formation_groups:
             for rect, enemy in group.get_alive_rects():
                 if rect.colliderect(pr):
@@ -649,6 +653,7 @@ class Game:
                             self._player_death_expl()
                         else:
                             self.sounds["player_hit"].play()
+                    return  # un solo danno per frame
 
     def _chk_asteroid_player(self, pr: pygame.Rect) -> None:
         """Asteroide -> giocatore (morte istantanea)."""
@@ -696,9 +701,9 @@ class Game:
         if self.score > self.save["high_score"]:
             self.save["high_score"] = self.score
 
-        # Controlla sblocchi
-        newly = check_unlocks(self.save)
-        if newly:
+        # Controlla sblocchi e salva il risultato per draw_game_over()
+        self._newly_unlocked = check_unlocks(self.save)
+        if self._newly_unlocked:
             self.sounds["unlock"].play()
 
         self.save["best_scores"].append(self.score)
@@ -847,7 +852,8 @@ class Game:
             self._credits_scroll = float(SCREEN_HEIGHT)
 
     def handle_credits_input(self, event: pygame.event.Event) -> None:
-        if event.type == pygame.KEYDOWN:
+        if event.type == pygame.KEYDOWN and event.key in (
+                pygame.K_ESCAPE, pygame.K_RETURN):
             self.state = "menu"
             self.sounds["select"].play()
 
@@ -1024,7 +1030,7 @@ class Game:
 
         secs = self.game_time // 60
         stat = self.font_small.render(
-            f"Punti: {self.score}   |   Tempo: {secs}s   |   "
+            f"Punti: {self.score}   |   Tempo: {_fmt_time(secs)}   |   "
             f"Lv.{self._diff_level + 1}",
             True, YELLOW)
         self.screen.blit(
@@ -1129,7 +1135,7 @@ class Game:
 
         secs = self.game_time // 60
         tt = self.font_small.render(
-            f"Tempo: {secs}s", True, (180, 180, 200))
+            f"Tempo: {_fmt_time(secs)}", True, (180, 180, 200))
         self.screen.blit(tt, (SCREEN_WIDTH - 150, hud_y + 8))
 
         dlvl = self.font_tiny.render(
@@ -1275,19 +1281,20 @@ class Game:
 
         secs = self.game_time // 60
         tt = self.font_small.render(
-            f"Sopravvissuto: {secs}s  |  Lv.{self._diff_level + 1}",
+            f"Sopravvissuto: {_fmt_time(secs)}  |  Lv.{self._diff_level + 1}",
             True, (180, 180, 200))
         self.screen.blit(tt, (SCREEN_WIDTH // 2 - tt.get_width() // 2, 295))
 
-        # Mostra navi sbloccate
-        newly = check_unlocks(self.save)
-        if newly:
-            for idx in newly:
+        # Mostra navi sbloccate (risultato salvato da _game_over)
+        if self._newly_unlocked:
+            y_offset = 335
+            for idx in self._newly_unlocked:
                 name = SHIP_NAMES[idx] if idx < len(SHIP_NAMES) else f"Ship {idx}"
                 ul = self.font_medium.render(
                     f"NAVE {name.upper()} SBLOCCATA!", True, MAGENTA)
                 self.screen.blit(
-                    ul, (SCREEN_WIDTH // 2 - ul.get_width() // 2, 335))
+                    ul, (SCREEN_WIDTH // 2 - ul.get_width() // 2, y_offset))
+                y_offset += 36
 
         r1 = self.font_small.render("INVIO/SPAZIO -- Rigioca", True, GREEN)
         r2 = self.font_small.render("ESC -- Menu", True, (150, 150, 170))

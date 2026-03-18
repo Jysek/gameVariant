@@ -152,12 +152,6 @@ def _would_block_corridor(x: float, w: int,
     if ast_right <= corridor[0] or ast_left >= corridor[1]:
         return False  # fuori dal corridoio: ok
 
-    # Calcola quanto corridoio residuo rimane
-    new_left  = max(corridor[0], ast_right)
-    new_right = min(corridor[1], ast_left)
-    residual  = max(new_left - corridor[0], corridor[1] - new_left,
-                    new_right - corridor[0], corridor[1] - ast_left)
-
     # Stima conservativa: il corridoio piu' largo rimasto
     left_gap  = max(0, ast_left - corridor[0])
     right_gap = max(0, corridor[1] - ast_right)

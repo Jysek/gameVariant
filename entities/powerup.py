@@ -77,6 +77,9 @@ class PowerUpCarrier:
         self._shake_offset_x = 0
         self._shake_offset_y = 0
 
+        # Font per l'HUD del carrier (creato una sola volta)
+        self._hud_font = pygame.font.Font(None, 18)
+
     def update(self):
         """Aggiorna il carrier in base allo stato corrente."""
         if not self.alive:
@@ -217,8 +220,7 @@ class PowerUpCarrier:
         """Disegna etichetta tipo, barra HP e barra timer."""
         color = POWERUP_COLORS.get(self.powerup_type, WHITE)
 
-        font = pygame.font.Font(None, 18)
-        label = font.render(self.powerup_type.upper(), True, color)
+        label = self._hud_font.render(self.powerup_type.upper(), True, color)
         label_x = self.x + self.width // 2 - label.get_width() // 2
         surface.blit(label, (int(label_x), int(self.y - 14)))
 
