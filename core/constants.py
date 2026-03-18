@@ -27,6 +27,7 @@ ORANGE     = (255, 165, 0)
 DARK_GRAY  = (30, 30, 40)
 PANEL_BG   = (20, 20, 35)
 STAR_WHITE = (200, 200, 220)
+GOLD       = (255, 215, 0)
 
 # ============================================================================
 # DIMENSIONI SPRITE (pixel)
@@ -44,90 +45,112 @@ EXPLOSION_SIZE   = 64
 ENEMY_SIZE = ENEMY_W
 
 # ============================================================================
-# NAVICELLE GIOCATORE
+# NAVICELLE GIOCATORE -- 5 navi giocabili
 # ============================================================================
-# 10 navi dal spritesheet navicelle.gif (3 righe x 4 colonne, 2 scartate).
-# Ogni nave puo' essere sbloccata raggiungendo un certo punteggio.
-NUM_PLAYER_SHIPS = 10
+# 5 navi selezionate dal spritesheet navicelle.gif.
+# Le ultime 2 (indici 3 e 4) hanno il doppio cannone.
+NUM_PLAYER_SHIPS = 5
 
 SHIP_NAMES = [
-    "Viper",      "Phoenix",    "Striker",   "Nova",
-    "Pulsar",     "Nebula",     "Comet",     "Eclipse",
-    "Tempest",    "Zenith",
+    "Viper",      # 0 - Agile, bilanciata
+    "Phoenix",    # 1 - Resistente, lenta
+    "Striker",    # 2 - Veloce, fragile
+    "Nova",       # 3 - Doppio cannone, tattica
+    "Zenith",     # 4 - Doppio cannone, distruttrice
 ]
 
 SHIP_DESCRIPTIONS = [
-    "Agile -- bilanciata",
-    "Doppio cannone -- VIP",
-    "Pesante -- muro di fuoco",
-    "Versatile -- precisa",
-    "Evasiva -- rapida",
-    "Devastante -- potente",
-    "Rapida -- traccia luminosa",
-    "Furtiva -- ombra spaziale",
-    "Furiosa -- tempesta di laser",
-    "Suprema -- distruttrice finale",
+    "Agile e bilanciata",
+    "Corazzata e potente",
+    "Veloce e letale",
+    "Doppio cannone tattico",
+    "Distruttrice suprema",
 ]
 
 # Colori associati ad ogni nave (usati per laser e HUD)
 SHIP_COLORS = [
-    GREEN, MAGENTA, ORANGE, BLUE, (200, 100, 255), RED,
-    (255, 200, 50), (100, 255, 200), (255, 100, 100), WHITE,
+    GREEN,                # Viper
+    MAGENTA,              # Phoenix
+    ORANGE,               # Striker
+    CYAN,                 # Nova
+    GOLD,                 # Zenith
 ]
 
 # Punteggi minimi per sbloccare ogni nave (0 = sbloccata di default)
-SHIP_UNLOCK_SCORES = [0, 150, 500, 750, 1000, 1500, 2000, 3000, 4500, 6000]
+# Progressione: 0, 200, 500, 1000, 2000
+SHIP_UNLOCK_SCORES = [0, 200, 500, 1000, 2000]
+
+# Flag doppio cannone: True per le ultime 2 navi (Nova e Zenith)
+SHIP_DOUBLE_CANNON = [False, False, False, True, True]
 
 # ============================================================================
 # STATISTICHE PER NAVE (rendono ogni navicella unica)
 # ============================================================================
-# Formato: {speed, fire_rate, damage}
+# Formato: {speed, fire_rate, damage, special}
 #   speed:     moltiplicatore velocita' base (1.0 = normale)
-#   fire_rate: moltiplicatore cooldown sparo (< 1.0 = piu' veloce)
+#   fire_rate: moltiplicatore cooldown sparo (< 1.0 = spara piu' veloce)
 #   damage:    danno per colpo (1 = normale, 2 = doppio)
-#
-# Le navi con indice % 3 == 2 usano il pattern doppio cannone.
+#   special:   abilita' speciale unica della nave
 SHIP_STATS = [
-    {"speed": 1.0,  "fire_rate": 1.0,  "damage": 1},  # Viper
-    {"speed": 0.9,  "fire_rate": 1.1,  "damage": 1},  # Phoenix
-    {"speed": 0.8,  "fire_rate": 1.3,  "damage": 2},  # Striker
-    {"speed": 1.0,  "fire_rate": 1.0,  "damage": 1},  # Nova
-    {"speed": 1.3,  "fire_rate": 0.8,  "damage": 1},  # Pulsar
-    {"speed": 0.85, "fire_rate": 1.2,  "damage": 2},  # Nebula
-    {"speed": 1.4,  "fire_rate": 0.7,  "damage": 1},  # Comet
-    {"speed": 1.1,  "fire_rate": 0.9,  "damage": 1},  # Eclipse
-    {"speed": 1.0,  "fire_rate": 0.65, "damage": 1},  # Tempest
-    {"speed": 1.15, "fire_rate": 0.8,  "damage": 2},  # Zenith
+    # Viper: bilanciata, nessun eccesso, buona per imparare
+    {"speed": 1.0,  "fire_rate": 1.0,  "damage": 1, "special": "none"},
+    # Phoenix: lenta ma resistente, danno alto, rateo lento
+    {"speed": 0.8,  "fire_rate": 1.3,  "damage": 2, "special": "regen"},
+    # Striker: velocissima, spara veloce, danno base
+    {"speed": 1.4,  "fire_rate": 0.6,  "damage": 1, "special": "piercing"},
+    # Nova: doppio cannone, buona velocita', danno standard
+    {"speed": 1.1,  "fire_rate": 0.85, "damage": 1, "special": "emp"},
+    # Zenith: doppio cannone devastante, lenta, danno doppio
+    {"speed": 0.9,  "fire_rate": 1.0,  "damage": 2, "special": "overdrive"},
 ]
 
 # ============================================================================
 # TIPI DI POWER-UP
 # ============================================================================
-POWERUP_TYPES = ["vita", "scudo", "velocita", "arma"]
+POWERUP_TYPES = ["vita", "scudo", "velocita", "arma", "bomba"]
 
 POWERUP_COLORS = {
     "vita":     GREEN,
     "scudo":    CYAN,
     "velocita": YELLOW,
     "arma":     ORANGE,
+    "bomba":    MAGENTA,
 }
 
 # ============================================================================
 # BOSS VARIANTI
 # ============================================================================
-NUM_BOSS_VARIANTS = 5  # boss.gif, boss_1.gif, boss_2.gif, boss_3.gif, boss_4.gif
+NUM_BOSS_VARIANTS = 5  # boss.gif, boss_1.gif, boss_2.gif, boss_3.gif, boss_4.png
+
+BOSS_NAMES = [
+    "Titano",      # Classic
+    "Furia",       # Burst
+    "Ventaglio",   # Fan
+    "Vortice",     # Spiral
+    "Devastatore", # Shotgun
+]
+
+# ============================================================================
+# TIPI DI NEMICO (statistiche)
+# ============================================================================
+ENEMY_TYPE_STATS = {
+    "scout":   {"hp": 1, "score": 1,  "speed": 6, "color": "red"},
+    "fighter": {"hp": 2, "score": 3,  "speed": 5, "color": "orange"},
+    "bomber":  {"hp": 4, "score": 5,  "speed": 3, "color": "purple"},
+    "elite":   {"hp": 3, "score": 8,  "speed": 5, "color": "cyan"},
+}
 
 # ============================================================================
 # DIFFICOLTA' PROGRESSIVA
 # ============================================================================
 DIFFICULTY_INTERVAL    = 30
 DIFFICULTY_SPEED_SCALE = 1.12
-DIFFICULTY_MAX_LEVEL   = 8
+DIFFICULTY_MAX_LEVEL   = 10
 
 # ============================================================================
 # COMBO SYSTEM
 # ============================================================================
-COMBO_TIMEOUT_FRAMES = 120
+COMBO_TIMEOUT_FRAMES = 150
 COMBO_MULT_THRESHOLDS = [3, 6, 10, 15, 25]
 COMBO_SCORE_BONUS     = [0.5, 1.0, 1.5, 2.0, 3.0]
 
@@ -141,4 +164,15 @@ SHAKE_INTENSITY_HEAVY  = 10
 # ============================================================================
 # GRACE PERIOD
 # ============================================================================
-GRACE_PERIOD_FRAMES = 120
+GRACE_PERIOD_FRAMES = 180
+
+# ============================================================================
+# SLOW MOTION (nuovo)
+# ============================================================================
+SLOW_MO_DURATION = 90       # frame di slow motion dopo boss kill
+SLOW_MO_FACTOR   = 0.4      # fattore velocita' durante slow-mo
+
+# ============================================================================
+# SCORE MULTIPLIER STREAK (nuovo)
+# ============================================================================
+STREAK_DECAY_FRAMES = 300   # frame prima che lo streak decada

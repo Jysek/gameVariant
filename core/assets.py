@@ -79,16 +79,7 @@ def _gif_frames(path: str) -> list[pygame.Surface]:
 
 def _gif_frames_remove_bg(path: str, bg: tuple[int, int, int],
                            tolerance: int = 15) -> list[pygame.Surface]:
-    """Come ``_gif_frames`` ma rimuove un colore di sfondo specifico.
-
-    Args:
-        path:      Percorso del file GIF.
-        bg:        Colore di sfondo da rimuovere (R, G, B).
-        tolerance: Tolleranza per il colore di sfondo.
-
-    Returns:
-        Lista di ``pygame.Surface`` con sfondo trasparente.
-    """
+    """Come ``_gif_frames`` ma rimuove un colore di sfondo specifico."""
     frames: list[pygame.Surface] = []
     gif = Image.open(path)
     for i in range(gif.n_frames):
@@ -110,14 +101,7 @@ def _gif_frames_remove_bg(path: str, bg: tuple[int, int, int],
 
 
 def _spritestrip_frames(path: str) -> list[pygame.Surface]:
-    """Legge un PNG spritestrip orizzontale (frame_h == altezza immagine).
-
-    Args:
-        path: Percorso del PNG spritestrip.
-
-    Returns:
-        Lista di ``pygame.Surface``.
-    """
+    """Legge un PNG spritestrip orizzontale (frame_h == altezza immagine)."""
     img = Image.open(path).convert("RGBA")
     fw = img.height
     n = img.width // fw
@@ -136,24 +120,10 @@ def _extract_ship_frames_from_gif(gif_path: str,
                                    bg: tuple[int, int, int],
                                    tolerance: int = 15,
                                    ) -> list[list[pygame.Surface]]:
-    """Estrae le navicelle animate da un foglio GIF a griglia.
-
-    Ogni cella della griglia diventa una lista di frame Pygame.
-
-    Args:
-        gif_path:   Percorso del file GIF.
-        row_bounds: Lista di (y_top, y_bottom) per ogni riga.
-        col_bounds: Lista di (x_left, x_right) per ogni colonna.
-        bg:         Colore di sfondo da rimuovere.
-        tolerance:  Tolleranza colore.
-
-    Returns:
-        Lista piatta di ``list[pygame.Surface]`` -- una entry per navicella.
-    """
+    """Estrae le navicelle animate da un foglio GIF a griglia."""
     gif = Image.open(gif_path)
     n_frames = gif.n_frames
 
-    # Leggi tutti i frame dell'intera GIF
     raw_frames: list[Image.Image] = []
     for i in range(n_frames):
         gif.seek(i)
@@ -187,18 +157,7 @@ def _extract_enemy_frames_from_gif(gif_path: str,
                                     bg: tuple[int, int, int],
                                     tolerance: int = 18,
                                     ) -> list[list[pygame.Surface]]:
-    """Estrae le navicelle nemiche da un foglio GIF (una riga, 4 colonne).
-
-    Args:
-        gif_path:   Percorso del file GIF.
-        col_bounds: Lista di (x_left, x_right) per ogni colonna.
-        row_bound:  (y_top, y_bottom) della singola riga.
-        bg:         Colore di sfondo da rimuovere.
-        tolerance:  Tolleranza colore.
-
-    Returns:
-        Lista di ``list[pygame.Surface]`` -- una entry per tipo nemico.
-    """
+    """Estrae le navicelle nemiche da un foglio GIF (una riga, 4 colonne)."""
     gif = Image.open(gif_path)
     n_frames = gif.n_frames
 
@@ -230,16 +189,11 @@ def _extract_enemy_frames_from_gif(gif_path: str,
 
 
 class Assets:
-    """Contenitore statico per tutti gli asset grafici del gioco.
-
-    Tutti gli attributi sono attributi di *classe*: vengono caricati una
-    sola volta da ``load()`` e condivisi da tutte le entita'.
-    """
+    """Contenitore statico per tutti gli asset grafici del gioco."""
 
     _loaded: bool = False
 
-    # -- Navi del giocatore (12 tipi, animate) --
-    # Ogni elemento e' una lista di frame pygame.Surface.
+    # -- Navi del giocatore (5 tipi, animate) --
     player_ship_frames: list[list[pygame.Surface]] = []
 
     # -- Laser (sprite pre-scalati per ciascun tipo di nave) --
@@ -249,7 +203,6 @@ class Assets:
     enemy_laser_sprite_scaled: pygame.Surface | None = None
 
     # -- Nemici (4 tipi, animati) --
-    # Ogni elemento e' una lista di frame pygame.Surface scalati a ENEMY_W x ENEMY_H.
     enemy_frames: dict[str, list[pygame.Surface]] = {}
 
     # -- Asteroide e scia --
@@ -269,13 +222,7 @@ class Assets:
 
     @classmethod
     def load(cls) -> None:
-        """Carica tutti gli asset grafici dal disco.
-
-        Deve essere chiamato **dopo** ``pygame.display.set_mode()`` perche'
-        ``convert_alpha()`` richiede un display attivo.
-
-        Il metodo e' idempotente: chiamate successive non ricaricano nulla.
-        """
+        """Carica tutti gli asset grafici dal disco."""
         if cls._loaded:
             return
 
@@ -283,34 +230,37 @@ class Assets:
         assets_dir = os.path.join(base, "Assets")
         laser_dir  = os.path.join(base, "LaserSprites")
 
-        # -- Helper interni --
-
         def img(name: str, size: tuple[int, int] | None = None) -> pygame.Surface:
-            """Carica e opzionalmente scala un'immagine dalla cartella Assets."""
             surf = pygame.image.load(os.path.join(assets_dir, name)).convert_alpha()
             return pygame.transform.scale(surf, size) if size else surf
 
         def lz(name: str) -> pygame.Surface:
-            """Carica e scala un laser dalla cartella LaserSprites."""
             return pygame.transform.scale(
                 pygame.image.load(os.path.join(laser_dir, name)).convert_alpha(),
                 (_LASER_W, _LASER_H),
             )
 
         # ==============================================================
-        # NAVI GIOCATORE (12 navi animate da navicelle.gif)
+        # NAVI GIOCATORE (5 navi animate da navicelle.gif)
         # ==============================================================
-        cls.player_ship_frames = _extract_ship_frames_from_gif(
+        all_ships = _extract_ship_frames_from_gif(
             os.path.join(assets_dir, "navicelle.gif"),
             _NAV_ROWS, _NAV_COLS, _NAV_BG, tolerance=15,
         )
-        valid_indices = [1, 2, 4, 5, 6, 7, 8, 9, 10, 11]
-        cls.player_ship_frames = [cls.player_ship_frames[i] for i in valid_indices]
+        # Seleziona 5 navi visivamente distinte dal foglio 3x4
+        # Indici nel foglio: 1, 2, 5, 8, 11 (le migliori visivamente)
+        selected_indices = [1, 2, 5, 8, 11]
+        cls.player_ship_frames = []
+        for idx in selected_indices:
+            if idx < len(all_ships):
+                cls.player_ship_frames.append(all_ships[idx])
+            else:
+                # Fallback: usa l'ultimo disponibile
+                cls.player_ship_frames.append(all_ships[-1])
 
         # ==============================================================
         # LASER
         # ==============================================================
-        # 3 tipi di laser base (riciclati per le 12 navi via modulo)
         _base_lasers      = [lz("11.png"), lz("16.png"), lz("12.png")]
         _base_left_angled = [lz("11LeftAngular.png"), lz("16LeftAngular.png"), lz("12LeftAngular.png")]
         _base_right_angled = [lz("11RightAngular.png"), lz("16RightAngular.png"), lz("12RightAngular.png")]
@@ -330,7 +280,6 @@ class Assets:
         )
         cls.enemy_frames = {}
         for i, name in enumerate(enemy_type_names):
-            # Scala ogni frame alla dimensione di gioco
             cls.enemy_frames[name] = [
                 pygame.transform.scale(f, (ENEMY_W, ENEMY_H))
                 for f in raw_enemy[i]
@@ -354,10 +303,23 @@ class Assets:
         # CARRIER e POWER-UP
         # ==============================================================
         for pt in POWERUP_TYPES:
-            cls.carrier_sprites[pt] = img(
-                f"carrier_{pt}.png", (CARRIER_SIZE, CARRIER_SIZE))
-            cls.powerup_sprites[pt] = img(
-                f"powerup_{pt}.png", (POWERUP_ITEM_SIZE, POWERUP_ITEM_SIZE))
+            # Bomba riusa lo sprite scudo (colore diverso via tint)
+            carrier_file = f"carrier_{pt}.png"
+            powerup_file = f"powerup_{pt}.png"
+            carrier_path = os.path.join(assets_dir, carrier_file)
+            powerup_path = os.path.join(assets_dir, powerup_file)
+
+            if os.path.exists(carrier_path):
+                cls.carrier_sprites[pt] = img(carrier_file, (CARRIER_SIZE, CARRIER_SIZE))
+            else:
+                # Fallback: usa carrier_scudo per nuovi tipi
+                cls.carrier_sprites[pt] = img("carrier_scudo.png", (CARRIER_SIZE, CARRIER_SIZE))
+
+            if os.path.exists(powerup_path):
+                cls.powerup_sprites[pt] = img(powerup_file, (POWERUP_ITEM_SIZE, POWERUP_ITEM_SIZE))
+            else:
+                # Fallback: usa powerup_scudo per nuovi tipi
+                cls.powerup_sprites[pt] = img("powerup_scudo.png", (POWERUP_ITEM_SIZE, POWERUP_ITEM_SIZE))
 
         # ==============================================================
         # BOSS VARIANTI (5 boss)
@@ -368,7 +330,7 @@ class Assets:
             path = os.path.join(assets_dir, bf)
             cls.boss_variant_frames.append(_gif_frames(path))
 
-        # boss_4: spritestrip PNG -> GIF gia' generato, oppure leggiamo il PNG
+        # boss_4: spritestrip PNG
         boss4_path = os.path.join(assets_dir, "boss_4.png")
         cls.boss_variant_frames.append(_spritestrip_frames(boss4_path))
 

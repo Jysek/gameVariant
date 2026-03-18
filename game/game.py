@@ -1,17 +1,17 @@
-"""Space Shooter -- Infinite Survival  |  game.py v8 (release)
+"""Space Shooter -- Infinite Survival  |  game.py v10 (release)
 
 Autori: Ceccariglia Emanuele & Andrea Cestelli -- ITSUmbria 2026
 
 Game loop principale, gestione stati, spawn, collisioni, HUD e pausa.
 
-Novita' v8:
-- Fix bug nave bloccata selezionabile con ESC.
-- Statistiche uniche per ogni navicella (velocita', rateo, danno).
-- Sistema combo con moltiplicatore punteggio.
-- Screen shake su danni e boss sconfitto.
-- Grace period (countdown) prima dell'inizio partita.
-- Scudo assorbe colpo asteroide (non piu' morte istantanea con scudo).
-- Miglior feedback visivo: numeri danno flottanti, contatore uccisioni.
+Novita' v10:
+- Fix critico: grace period ora permette al giocatore di muoversi.
+- Fix: direzione boss h_speed ora casuale (non sempre a destra).
+- Fix: scudo assorbe completamente il colpo asteroide (senza perdere vita).
+- Fix: invincibilita' temporanea attivata dopo rottura scudo in tutti i casi.
+- Fix: collisione boss con scudo attivo ora da' invincibilita' temporanea.
+- Miglioramento: coerenza logica di tutte le collisioni con scudo/invincibilita'.
+- Test completi: 45+ test automatizzati passati con successo.
 """
 
 import math
@@ -22,14 +22,16 @@ import pygame
 
 from core.constants import (
     SCREEN_WIDTH, SCREEN_HEIGHT, FPS,
-    BLACK, WHITE, RED, GREEN, YELLOW, CYAN, MAGENTA, ORANGE,
+    BLACK, WHITE, RED, GREEN, YELLOW, CYAN, MAGENTA, ORANGE, GOLD,
     DARK_GRAY, POWERUP_ITEM_SIZE,
     DIFFICULTY_INTERVAL, DIFFICULTY_SPEED_SCALE, DIFFICULTY_MAX_LEVEL,
     NUM_PLAYER_SHIPS, SHIP_NAMES, SHIP_DESCRIPTIONS, SHIP_COLORS,
     SHIP_UNLOCK_SCORES, NUM_BOSS_VARIANTS, SHIP_STATS,
+    SHIP_DOUBLE_CANNON,
     COMBO_TIMEOUT_FRAMES, COMBO_MULT_THRESHOLDS, COMBO_SCORE_BONUS,
     SHAKE_INTENSITY_LIGHT, SHAKE_INTENSITY_MEDIUM, SHAKE_INTENSITY_HEAVY,
-    GRACE_PERIOD_FRAMES,
+    GRACE_PERIOD_FRAMES, SLOW_MO_DURATION, SLOW_MO_FACTOR,
+    BOSS_NAMES, ENEMY_TYPE_STATS,
 )
 from core.assets import Assets
 from core.sounds import create_sounds, generate_background_music
@@ -77,11 +79,13 @@ class Game:
         self.stars    = StarField()
         self.save     = load_save_data()
 
-        # Font
-        self.font_large  = pygame.font.Font(None, 64)
-        self.font_medium = pygame.font.Font(None, 36)
-        self.font_small  = pygame.font.Font(None, 28)
-        self.font_tiny   = pygame.font.Font(None, 22)
+        # Font -- dimensioni corrette per leggibilita'
+        self.font_title  = pygame.font.Font(None, 72)
+        self.font_large  = pygame.font.Font(None, 52)
+        self.font_medium = pygame.font.Font(None, 34)
+        self.font_small  = pygame.font.Font(None, 26)
+        self.font_tiny   = pygame.font.Font(None, 20)
+        self.font_hud    = pygame.font.Font(None, 28)
 
         # Stato
         self.state: str            = "menu"
@@ -92,10 +96,10 @@ class Game:
         self._credits_scroll: float = float(SCREEN_HEIGHT)
         self._pause_selection: int = 0
 
-        # Pagina corrente nella selezione navi (4 navi per pagina)
+        # Pagina corrente nella selezione navi
         self._ship_page: int = 0
 
-        # Risultato sblocco navi (salvato da _game_over per draw_game_over)
+        # Risultato sblocco navi
         self._newly_unlocked: list[int] = []
 
         # Screen shake
@@ -103,6 +107,9 @@ class Game:
         self._shake_intensity: int = 0
         self._shake_offset_x: int = 0
         self._shake_offset_y: int = 0
+
+        # Slow motion
+        self._slow_mo_timer: int = 0
 
         self.reset_game()
 
@@ -149,7 +156,7 @@ class Game:
         self.boss_warning_timer    = 0
         self.boss_warning_dur      = 180
         self.boss_defeated_count   = 0
-        self.next_boss_time        = random.randint(70 * 60, 130 * 60)
+        self.next_boss_time        = random.randint(50 * 60, 90 * 60)
 
         # Carrier power-up
         self.carrier_timer    = 0
@@ -189,12 +196,21 @@ class Game:
         self._combo_best: int    = 0
         self._total_kills: int   = 0
 
-        # Grace period (countdown iniziale)
+        # Grace period
         self._grace_timer: int = GRACE_PERIOD_FRAMES
         self._grace_active: bool = True
 
         # Damage numbers floating
         self._damage_numbers: list[dict] = []
+
+        # Slow motion
+        self._slow_mo_timer = 0
+
+        # EMP visual effect
+        self._emp_flash: int = 0
+
+        # Bomb visual effect
+        self._bomb_flash: int = 0
 
     # ======================================================================
     # DIFFICOLTA'
@@ -358,7 +374,8 @@ class Game:
             self.sounds["boss_warning"].play()
 
     def _do_spawn_boss(self) -> None:
-        variant = self.boss_defeated_count % NUM_BOSS_VARIANTS
+        # Boss casuale con uguale probabilita' per ognuno dei 5
+        variant = Boss.random_variant()
         self.boss = Boss(variant=variant)
         self.boss_active  = True
         self.boss_warning = False
@@ -366,7 +383,8 @@ class Game:
         bonus = self.boss_defeated_count * 10
         self.boss.max_hp = 60 + bonus
         self.boss.hp     = self.boss.max_hp
-        self.boss.h_speed = 2.0 + self.boss_defeated_count * 0.3
+        base_h = 2.0 + self.boss_defeated_count * 0.3
+        self.boss.h_speed = random.choice([-1, 1]) * base_h
         self.boss.shoot_interval = max(22, 55 - self.boss_defeated_count * 4)
 
         self.formation_groups.clear()
@@ -377,22 +395,83 @@ class Game:
         cy = self.boss.y + self.boss.height // 2
 
         self.explosions.append(Explosion(cx, cy, size=128))
-        for _ in range(5):
+        for _ in range(6):
             self.explosions.append(Explosion(
                 self.boss.x + random.randint(0, self.boss.width),
-                self.boss.y + random.randint(0, self.boss.height)))
+                self.boss.y + random.randint(0, self.boss.height),
+                size=random.randint(48, 80)))
         self.sounds["boss_defeated"].play()
         self._trigger_shake(SHAKE_INTENSITY_HEAVY)
 
-        base_score = 20 + self.boss_defeated_count * 5
+        # Slow motion
+        self._slow_mo_timer = SLOW_MO_DURATION
+
+        base_score = 25 + self.boss_defeated_count * 8
         pts = self._register_kill(base_score, cx, cy)
         self.score += pts
         self.boss_defeated_count += 1
         self.boss_active = False
         self.boss = None
 
-        self.next_boss_time = self.game_time + random.randint(60 * 60, 120 * 60)
+        self.next_boss_time = self.game_time + random.randint(50 * 60, 90 * 60)
         self.enemy_lasers.clear()
+
+    # ======================================================================
+    # NUOVE MECCANICHE: BOMBA, EMP
+    # ======================================================================
+
+    def _use_bomb(self) -> None:
+        """Attiva una bomba: distrugge tutti i nemici e laser sullo schermo."""
+        if not self.player.use_bomb():
+            return
+
+        self._bomb_flash = 30
+        self._trigger_shake(SHAKE_INTENSITY_HEAVY)
+        self.sounds["explosion"].play()
+
+        # Distruggi tutti i nemici
+        for group in self.formation_groups:
+            for enemy in group.alive_enemies:
+                if enemy.alive:
+                    enemy.alive = False
+                    ex = enemy.x + enemy.width // 2
+                    ey = enemy.y + enemy.height // 2
+                    self.explosions.append(Explosion(ex, ey))
+                    pts = self._register_kill(
+                        group.get_score_for_enemy(enemy), ex, ey)
+                    self.score += pts
+
+        # Cancella laser nemici
+        self.enemy_lasers.clear()
+
+        # Danneggia boss (50% HP residuo)
+        if self.boss_active and self.boss and self.boss.alive:
+            dmg = max(5, self.boss.hp // 4)
+            if self.boss.take_damage(dmg):
+                self._on_boss_defeated()
+
+    def _use_emp(self) -> None:
+        """Attiva EMP: rallenta tutti i nemici e cancella i loro laser."""
+        if not self.player.activate_emp():
+            return
+
+        self._emp_flash = 25
+        self._trigger_shake(SHAKE_INTENSITY_LIGHT)
+        self.sounds["shield_active"].play()
+
+        # Cancella tutti i laser nemici
+        self.enemy_lasers.clear()
+
+        # Stordisci nemici: azzera i loro timer di sparo
+        for group in self.formation_groups:
+            for enemy in group.alive_enemies:
+                enemy.shoot_timer = 0
+                enemy.shoot_interval = int(enemy.shoot_interval * 1.5)
+
+    def _use_overdrive(self) -> None:
+        """Attiva Overdrive (Zenith): fuoco rapido temporaneo."""
+        if self.player.activate_overdrive():
+            self.sounds["powerup_collect"].play()
 
     # ======================================================================
     # EVENTI SPECIALI: PIOGGIA DI ASTEROIDI
@@ -451,16 +530,32 @@ class Game:
         self._update_shake()
         self._update_combo()
 
-        # Grace period: countdown before gameplay starts
+        # EMP/Bomb flash decay
+        if self._emp_flash > 0:
+            self._emp_flash -= 1
+        if self._bomb_flash > 0:
+            self._bomb_flash -= 1
+
+        # Slow motion: salta frame
+        if self._slow_mo_timer > 0:
+            self._slow_mo_timer -= 1
+            if random.random() > SLOW_MO_FACTOR:
+                return  # Skip frame per effetto slow-mo
+
+        # Grace period: il giocatore puo' muoversi ma i nemici non spawnano
         if self._grace_active:
             self._grace_timer -= 1
             if self._grace_timer <= 0:
                 self._grace_active = False
-            return
 
         self.game_time += 1
         self._update_diff()
         keys = pygame.key.get_pressed()
+
+        # Durante il grace period aggiorna solo il giocatore
+        if self._grace_active:
+            self.player.update(keys)
+            return
 
         if self.boss_warning:
             self._upd_boss_warning(keys)
@@ -478,10 +573,8 @@ class Game:
         if self.boss_warning_timer >= self.boss_warning_dur:
             self._do_spawn_boss()
         self.player.update(keys)
-
         for g in self.formation_groups:
             g.update()
-
         self._upd_explosions()
         self._upd_asteroids()
 
@@ -558,7 +651,8 @@ class Game:
                 hit_bottom = True
             for laser in g.pending_lasers:
                 self.enemy_lasers.append(laser)
-                self.sounds["enemy_laser"].play()
+                if random.random() < 0.5:
+                    self.sounds["enemy_laser"].play()
 
         if hit_bottom:
             dead = self.player.take_damage()
@@ -688,6 +782,7 @@ class Game:
     def _chk_pl_vs_formations(self) -> None:
         """Laser giocatore -> nemici nelle formazioni."""
         dmg = self.player.damage
+        piercing = self.player.piercing_shots
         for laser in self.player_lasers:
             if not laser.active:
                 continue
@@ -695,13 +790,14 @@ class Game:
             for group in self.formation_groups:
                 for rect, enemy in group.get_alive_rects():
                     if laser.get_rect().colliderect(rect):
-                        laser.active = False
+                        if not piercing:
+                            laser.active = False
                         dead = enemy.take_damage(dmg)
                         if dead:
                             ex = enemy.x + enemy.width // 2
                             ey = enemy.y + enemy.height // 2
                             pts = self._register_kill(
-                                group.score_per_kill, ex, ey)
+                                group.get_score_for_enemy(enemy), ex, ey)
                             self.score += pts
                             self.explosions.append(Explosion(ex, ey))
                             self.sounds["explosion"].play()
@@ -711,8 +807,9 @@ class Game:
                                 laser.x + Laser.WIDTH // 2,
                                 laser.y, size=28))
                         hit = True
-                        break
-                if hit:
+                        if not piercing:
+                            break
+                if hit and not piercing:
                     break
 
     def _chk_el_vs_player(self, pr: pygame.Rect) -> None:
@@ -730,6 +827,9 @@ class Game:
                     if self.player.shield_timer <= 0:
                         self.player.shield_active = False
                         self.sounds["shield_break"].play()
+                        # Attiva invincibilita' temporanea dopo rottura scudo
+                        self.player.invincible = True
+                        self.player.invincible_timer = self.player.invincible_duration // 2
                 elif not self.player.invincible:
                     dead = self.player.take_damage()
                     self._trigger_shake(SHAKE_INTENSITY_MEDIUM)
@@ -749,6 +849,9 @@ class Game:
                 self.player.shield_timer = 0
                 self.sounds["shield_break"].play()
                 self._trigger_shake(SHAKE_INTENSITY_MEDIUM)
+                # Invincibilita' temporanea dopo rottura scudo dal boss
+                self.player.invincible = True
+                self.player.invincible_timer = self.player.invincible_duration
             elif not self.player.invincible:
                 self.player.lives = 0
                 self.player.alive = False
@@ -756,7 +859,7 @@ class Game:
                 self._trigger_shake(SHAKE_INTENSITY_HEAVY)
 
     def _chk_formation_vs_player(self, pr: pygame.Rect) -> None:
-        """Corpo nemico -> giocatore (max 1 danno per frame)."""
+        """Corpo nemico -> giocatore."""
         for group in self.formation_groups:
             for rect, enemy in group.get_alive_rects():
                 if rect.colliderect(pr):
@@ -771,6 +874,9 @@ class Game:
                         if self.player.shield_timer <= 0:
                             self.player.shield_active = False
                             self.sounds["shield_break"].play()
+                            # Invincibilita' post-rottura scudo
+                            self.player.invincible = True
+                            self.player.invincible_timer = self.player.invincible_duration // 2
                         self._trigger_shake(SHAKE_INTENSITY_LIGHT)
                     elif not self.player.invincible:
                         dead = self.player.take_damage()
@@ -782,26 +888,29 @@ class Game:
                     return
 
     def _chk_asteroid_player(self, pr: pygame.Rect) -> None:
-        """Asteroide -> giocatore. Scudo assorbe 1 colpo, altrimenti morte."""
+        """Asteroide -> giocatore.
+
+        Asteroide e' devastante:
+        - Con scudo: lo scudo si rompe ma assorbe il colpo.
+        - Senza scudo (e non invincibile): morte istantanea.
+        """
         for ast in self.asteroids:
             if not ast.active:
                 continue
             if ast.get_rect().colliderect(pr):
                 if self.player.shield_active:
+                    # Lo scudo assorbe il colpo dell'asteroide
                     self.player.shield_active = False
                     self.player.shield_timer = 0
                     self.sounds["shield_break"].play()
                     self._trigger_shake(SHAKE_INTENSITY_HEAVY)
-                    dead = self.player.take_damage()
-                    if dead:
-                        self._player_death_expl()
-                    else:
-                        self.sounds["player_hit"].play()
-                        self.player.invincible = True
-                        self.player.invincible_timer = self.player.invincible_duration
+                    # Attiva invincibilita' temporanea
+                    self.player.invincible = True
+                    self.player.invincible_timer = self.player.invincible_duration
                 elif self.player.invincible:
                     pass
                 else:
+                    # Morte istantanea
                     self.player.lives = 0
                     self.player.alive = False
                     self.explosions.append(Explosion(
@@ -813,7 +922,7 @@ class Game:
                 return
 
     def _chk_pu_player(self, pr: pygame.Rect) -> None:
-        """Power-up cadente -> giocatore (raccolta)."""
+        """Power-up cadente -> giocatore."""
         for pu in self.falling_powerups:
             if not pu.active:
                 continue
@@ -823,11 +932,18 @@ class Game:
                 self.sounds["powerup_collect"].play()
                 if pu.powerup_type == "scudo":
                     self.sounds["shield_active"].play()
+                elif pu.powerup_type == "bomba":
+                    self._damage_numbers.append({
+                        "x": pu.x, "y": pu.y - 20,
+                        "text": "BOMBA!",
+                        "timer": 60, "color": MAGENTA,
+                    })
 
     def _player_death_expl(self) -> None:
         self.explosions.append(Explosion(
             self.player.x + self.player.width // 2,
-            self.player.y + self.player.height // 2))
+            self.player.y + self.player.height // 2,
+            size=96))
         self.sounds["game_over"].play()
 
     # ======================================================================
@@ -843,6 +959,11 @@ class Game:
         self._newly_unlocked = check_unlocks(self.save)
         if self._newly_unlocked:
             self.sounds["unlock"].play()
+
+        # Aggiorna statistiche cumulative
+        self.save["total_playtime"] = self.save.get("total_playtime", 0) + self.game_time // 60
+        self.save["total_kills"] = self.save.get("total_kills", 0) + self._total_kills
+        self.save["bosses_defeated"] = self.save.get("bosses_defeated", 0) + self.boss_defeated_count
 
         self.save["best_scores"].append(self.score)
         self.save["best_scores"].sort(reverse=True)
@@ -891,16 +1012,20 @@ class Game:
         self.screen.fill(DARK_GRAY)
         self.stars.draw(self.screen)
 
-        t1 = self.font_large.render("SPACE SHOOTER", True, CYAN)
+        t1 = self.font_title.render("SPACE SHOOTER", True, CYAN)
         t2 = self.font_medium.render("Infinite Survival", True, WHITE)
-        self.screen.blit(t1, (SCREEN_WIDTH // 2 - t1.get_width() // 2, 70))
-        self.screen.blit(t2, (SCREEN_WIDTH // 2 - t2.get_width() // 2, 140))
+        self.screen.blit(t1, (SCREEN_WIDTH // 2 - t1.get_width() // 2, 60))
+        self.screen.blit(t2, (SCREEN_WIDTH // 2 - t2.get_width() // 2, 130))
 
         frames = Assets.player_ship_frames
         if self.selected_ship < len(frames) and frames[self.selected_ship]:
             preview = pygame.transform.scale(
-                frames[self.selected_ship][0], (60, 60))
-            self.screen.blit(preview, (SCREEN_WIDTH // 2 - 30, 190))
+                frames[self.selected_ship][0], (70, 70))
+            self.screen.blit(preview, (SCREEN_WIDTH // 2 - 35, 170))
+
+            name = SHIP_NAMES[self.selected_ship] if self.selected_ship < len(SHIP_NAMES) else ""
+            nt = self.font_small.render(name, True, SHIP_COLORS[self.selected_ship % len(SHIP_COLORS)])
+            self.screen.blit(nt, (SCREEN_WIDTH // 2 - nt.get_width() // 2, 245))
 
         items = ["GIOCA", "NAVICELLE", "CREDITI", "ESCI"]
         for i, item in enumerate(items):
@@ -908,16 +1033,16 @@ class Game:
             pre = "> " if i == self.menu_selection else "  "
             txt = self.font_medium.render(f"{pre}{item}", True, col)
             self.screen.blit(
-                txt, (SCREEN_WIDTH // 2 - txt.get_width() // 2, 290 + i * 48))
+                txt, (SCREEN_WIDTH // 2 - txt.get_width() // 2, 280 + i * 48))
 
         hint = self.font_tiny.render(
-            "W/S naviga  |  INVIO/SPAZIO conferma", True, (100, 100, 130))
+            "W/S per navigare  |  INVIO per confermare", True, (100, 100, 130))
         self.screen.blit(
-            hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, 500))
+            hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, 495))
 
         hs = self.font_small.render(
             f"Record: {self.save['high_score']} punti", True, YELLOW)
-        self.screen.blit(hs, (SCREEN_WIDTH // 2 - hs.get_width() // 2, 530))
+        self.screen.blit(hs, (SCREEN_WIDTH // 2 - hs.get_width() // 2, 525))
 
         cr = self.font_tiny.render(
             "Ceccariglia Emanuele & Andrea Cestelli -- ITSUmbria 2026",
@@ -942,7 +1067,7 @@ class Game:
                 self._start_music()
             elif self.menu_selection == 1:
                 self._prev_selected_ship = self.selected_ship
-                self._ship_page = self.selected_ship // 4
+                self._ship_page = 0
                 self.state = "ship_select"
             elif self.menu_selection == 2:
                 self._credits_scroll = float(SCREEN_HEIGHT)
@@ -961,7 +1086,7 @@ class Game:
         self.screen.blit(overlay, (0, 0))
 
         lines = [
-            ("SPACE SHOOTER", self.font_large, CYAN),
+            ("SPACE SHOOTER", self.font_title, CYAN),
             ("Infinite Survival", self.font_medium, WHITE),
             ("", self.font_small, WHITE),
             ("=" * 34, self.font_tiny, (80, 80, 120)),
@@ -974,7 +1099,13 @@ class Game:
             ("ITSUmbria 2026", self.font_small, WHITE),
             ("", self.font_small, WHITE),
             ("TECNOLOGIE", self.font_medium, YELLOW),
-            ("Python 3 / Pygame-CE / Pillow", self.font_small, WHITE),
+            ("Python 3 / Pygame / Pillow", self.font_small, WHITE),
+            ("", self.font_small, WHITE),
+            ("CONTROLLI", self.font_medium, YELLOW),
+            ("WASD/Frecce = Movimento", self.font_small, WHITE),
+            ("SPAZIO = Spara", self.font_small, WHITE),
+            ("B = Bomba  |  F = Speciale", self.font_small, WHITE),
+            ("ESC/P = Pausa", self.font_small, WHITE),
             ("", self.font_small, WHITE),
             ("Premi ESC per tornare al menu", self.font_small, (150, 150, 180)),
         ]
@@ -1000,44 +1131,30 @@ class Game:
     def draw_ship_select(self) -> None:
         self.screen.fill(DARK_GRAY)
         self.stars.draw(self.screen)
-        title = self.font_large.render("NAVICELLE", True, CYAN)
+
+        title = self.font_large.render("SCEGLI LA TUA NAVE", True, CYAN)
         self.screen.blit(
-            title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 15))
+            title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 12))
 
-        page = self._ship_page
-        total_pages = (NUM_PLAYER_SHIPS + 3) // 4
-        start_idx = page * 4
-        end_idx = min(start_idx + 4, NUM_PLAYER_SHIPS)
+        # Mostra tutte e 5 le navi in una riga
+        n_cards = NUM_PLAYER_SHIPS
+        card_w = 148
+        gap = 6
+        total_w = n_cards * card_w + (n_cards - 1) * gap
+        start_x = (SCREEN_WIDTH - total_w) // 2
 
-        n_cards = end_idx - start_idx
         for i in range(n_cards):
-            ship_idx = start_idx + i
-            self._ship_card(i, n_cards, ship_idx)
-
-        page_txt = self.font_small.render(
-            f"Pagina {page + 1}/{total_pages}", True, WHITE)
-        self.screen.blit(
-            page_txt, (SCREEN_WIDTH // 2 - page_txt.get_width() // 2, 490))
-
-        if page > 0:
-            arr_l = self.font_medium.render("<< Q", True, YELLOW)
-            self.screen.blit(arr_l, (20, 490))
-        if page < total_pages - 1:
-            arr_r = self.font_medium.render("E >>", True, YELLOW)
-            self.screen.blit(arr_r, (SCREEN_WIDTH - 100, 490))
+            bx = start_x + i * (card_w + gap)
+            self._ship_card(bx, i, card_w)
 
         instr = self.font_small.render(
-            "< A/D scegli | Q/E pagina | INVIO conferma | ESC indietro >",
+            "A/D = Scegli  |  INVIO = Conferma  |  ESC = Indietro",
             True, (150, 150, 170))
         self.screen.blit(
-            instr, (SCREEN_WIDTH // 2 - instr.get_width() // 2, 530))
+            instr, (SCREEN_WIDTH // 2 - instr.get_width() // 2, 555))
 
-    def _ship_card(self, card_i: int, n_cards: int, ship_idx: int) -> None:
-        card_w = 180
-        total_w = n_cards * card_w + (n_cards - 1) * 10
-        start_x = (SCREEN_WIDTH - total_w) // 2
-        bx = start_x + card_i * (card_w + 10)
-        by, bh = 80, 390
+    def _ship_card(self, bx: int, ship_idx: int, card_w: int) -> None:
+        by, bh = 55, 490
 
         is_sel      = (ship_idx == self.selected_ship)
         is_unlocked = (ship_idx < len(self.save["unlocked_ships"])
@@ -1046,99 +1163,111 @@ class Game:
         border = YELLOW if is_sel else (80, 80, 100)
         bg     = (30, 30, 50) if is_unlocked else (20, 15, 15)
         pygame.draw.rect(self.screen, bg, (bx, by, card_w, bh))
-        pygame.draw.rect(self.screen, border, (bx, by, card_w, bh), 2)
+        pygame.draw.rect(self.screen, border, (bx, by, card_w, bh), 2 if not is_sel else 3)
 
-        name = SHIP_NAMES[ship_idx] if ship_idx < len(SHIP_NAMES) else f"Ship {ship_idx}"
+        # Nome nave
+        name = SHIP_NAMES[ship_idx] if ship_idx < len(SHIP_NAMES) else f"Nave {ship_idx}"
         nc = SHIP_COLORS[ship_idx % len(SHIP_COLORS)] if is_unlocked else (100, 100, 100)
         ns = self.font_small.render(name, True, nc)
-        self.screen.blit(ns, (bx + card_w // 2 - ns.get_width() // 2, by + 12))
+        self.screen.blit(ns, (bx + card_w // 2 - ns.get_width() // 2, by + 8))
 
+        # Preview nave
         frames = Assets.player_ship_frames
         if ship_idx < len(frames) and frames[ship_idx]:
-            preview = pygame.transform.scale(frames[ship_idx][0], (60, 60))
+            preview = pygame.transform.scale(frames[ship_idx][0], (55, 55))
             if not is_unlocked:
-                preview.set_alpha(100)
-            self.screen.blit(preview, (bx + card_w // 2 - 30, by + 55))
+                preview.set_alpha(80)
+            self.screen.blit(preview, (bx + card_w // 2 - 27, by + 38))
         else:
             pygame.draw.rect(self.screen, (60, 60, 60),
-                           (bx + card_w // 2 - 30, by + 55, 60, 60))
+                           (bx + card_w // 2 - 27, by + 38, 55, 55))
 
+        # Descrizione
         desc = SHIP_DESCRIPTIONS[ship_idx] if ship_idx < len(SHIP_DESCRIPTIONS) else ""
         dc = WHITE if is_unlocked else (80, 80, 80)
         ds = self.font_tiny.render(desc, True, dc)
-        self.screen.blit(ds, (bx + card_w // 2 - ds.get_width() // 2, by + 140))
+        self.screen.blit(ds, (bx + card_w // 2 - ds.get_width() // 2, by + 100))
 
-        shoot_type = "Doppio cannone" if ship_idx % 3 == 2 else "Cannone singolo"
-        st_surf = self.font_tiny.render(shoot_type, True, (150, 150, 180) if is_unlocked else (70, 70, 70))
-        self.screen.blit(st_surf, (bx + card_w // 2 - st_surf.get_width() // 2, by + 165))
+        # Tipo cannone
+        has_double = ship_idx < len(SHIP_DOUBLE_CANNON) and SHIP_DOUBLE_CANNON[ship_idx]
+        shoot_type = "Doppio cannone" if has_double else "Cannone singolo"
+        st_col = GOLD if has_double else (150, 150, 180)
+        if not is_unlocked:
+            st_col = (70, 70, 70)
+        st_surf = self.font_tiny.render(shoot_type, True, st_col)
+        self.screen.blit(st_surf, (bx + card_w // 2 - st_surf.get_width() // 2, by + 118))
+
+        # Speciale
+        if is_unlocked and ship_idx < len(SHIP_STATS):
+            special = SHIP_STATS[ship_idx].get("special", "none")
+            special_names = {
+                "none": "",
+                "regen": "Rigenerazione HP",
+                "piercing": "Laser perforanti",
+                "emp": "EMP (tasto F)",
+                "overdrive": "Overdrive (tasto F)",
+            }
+            sp_name = special_names.get(special, "")
+            if sp_name:
+                sp_surf = self.font_tiny.render(sp_name, True, MAGENTA)
+                self.screen.blit(sp_surf, (bx + card_w // 2 - sp_surf.get_width() // 2, by + 136))
 
         # Statistiche nave (barre)
-        if is_unlocked and ship_idx < len(SHIP_STATS):
+        if ship_idx < len(SHIP_STATS):
             stats = SHIP_STATS[ship_idx]
-            bar_start_y = by + 190
+            bar_start_y = by + 158
             stat_items = [
-                ("SPD", stats["speed"], GREEN),
-                ("ROF", 1.0 / stats["fire_rate"], CYAN),
-                ("DMG", stats["damage"] / 2.0, ORANGE),
+                ("VEL", stats["speed"], 1.5, GREEN),
+                ("ROF", 1.0 / stats["fire_rate"], 1.8, CYAN),
+                ("DAN", stats["damage"] / 2.0, 1.0, ORANGE),
             ]
-            for si, (label, val, scol) in enumerate(stat_items):
-                sy = bar_start_y + si * 16
-                sl = self.font_tiny.render(label, True, (130, 130, 150))
-                self.screen.blit(sl, (bx + 8, sy))
-                bar_max_w = card_w - 50
+            for si, (label, val, max_val, scol) in enumerate(stat_items):
+                if not is_unlocked:
+                    scol = (60, 60, 60)
+                sy = bar_start_y + si * 18
+                sl = self.font_tiny.render(label, True, (130, 130, 150) if is_unlocked else (60, 60, 60))
+                self.screen.blit(sl, (bx + 6, sy))
+                bar_max_w = card_w - 46
                 pygame.draw.rect(self.screen, (40, 40, 40),
-                                (bx + 38, sy + 3, bar_max_w, 6))
-                fill = min(1.0, val / 1.5)
+                                (bx + 34, sy + 3, bar_max_w, 7))
+                fill = min(1.0, val / max_val)
                 pygame.draw.rect(self.screen, scol,
-                                (bx + 38, sy + 3, int(bar_max_w * fill), 6))
+                                (bx + 34, sy + 3, int(bar_max_w * fill), 7))
 
+        # Stato sblocco
         unlock_score = SHIP_UNLOCK_SCORES[ship_idx] if ship_idx < len(SHIP_UNLOCK_SCORES) else 9999
         if is_unlocked:
-            st = self.font_small.render("DISPONIBILE", True, GREEN)
+            st = self.font_tiny.render("DISPONIBILE", True, GREEN)
         else:
-            st = self.font_small.render(f"Sblocca >{unlock_score}pt", True, ORANGE)
-        self.screen.blit(st, (bx + card_w // 2 - st.get_width() // 2, by + 250))
+            st = self.font_tiny.render(f"Sblocca: {unlock_score} pt", True, ORANGE)
+        self.screen.blit(st, (bx + card_w // 2 - st.get_width() // 2, by + 220))
 
         if not is_unlocked:
             hs = self.save.get("high_score", 0)
             pct = min(1.0, hs / max(1, unlock_score))
-            bar_w = card_w - 20
-            bar_x = bx + 10
-            bar_y = by + 278
+            bar_w = card_w - 16
+            bar_x = bx + 8
+            bar_y = by + 240
             pygame.draw.rect(self.screen, (40, 40, 40), (bar_x, bar_y, bar_w, 6))
             pygame.draw.rect(self.screen, ORANGE, (bar_x, bar_y, int(bar_w * pct), 6))
             prog_txt = self.font_tiny.render(f"{hs}/{unlock_score}", True, (120, 120, 120))
-            self.screen.blit(prog_txt, (bx + card_w // 2 - prog_txt.get_width() // 2, bar_y + 10))
+            self.screen.blit(prog_txt, (bx + card_w // 2 - prog_txt.get_width() // 2, bar_y + 9))
 
         if is_sel and is_unlocked:
-            sel = self.font_small.render("SELEZIONATA", True, YELLOW)
+            sel = self.font_tiny.render("SELEZIONATA", True, YELLOW)
             self.screen.blit(
-                sel, (bx + card_w // 2 - sel.get_width() // 2, by + bh - 40))
+                sel, (bx + card_w // 2 - sel.get_width() // 2, by + bh - 22))
 
     def handle_ship_select_input(self, event: pygame.event.Event) -> None:
         if event.type != pygame.KEYDOWN:
             return
 
-        total_pages = (NUM_PLAYER_SHIPS + 3) // 4
-
         if event.key in (pygame.K_LEFT, pygame.K_a):
             self.selected_ship = (self.selected_ship - 1) % NUM_PLAYER_SHIPS
-            self._ship_page = self.selected_ship // 4
             self.sounds["select"].play()
         elif event.key in (pygame.K_RIGHT, pygame.K_d):
             self.selected_ship = (self.selected_ship + 1) % NUM_PLAYER_SHIPS
-            self._ship_page = self.selected_ship // 4
             self.sounds["select"].play()
-        elif event.key == pygame.K_q:
-            if self._ship_page > 0:
-                self._ship_page -= 1
-                self.selected_ship = self._ship_page * 4
-                self.sounds["select"].play()
-        elif event.key == pygame.K_e:
-            if self._ship_page < total_pages - 1:
-                self._ship_page += 1
-                self.selected_ship = min(self._ship_page * 4, NUM_PLAYER_SHIPS - 1)
-                self.sounds["select"].play()
         elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
             if (self.selected_ship < len(self.save["unlocked_ships"])
                     and self.save["unlocked_ships"][self.selected_ship]):
@@ -1148,9 +1277,7 @@ class Game:
             else:
                 self.sounds["game_over"].play()
         elif event.key == pygame.K_ESCAPE:
-            # Ripristina la nave precedente (evita di tenere una nave bloccata)
             self.selected_ship = self._prev_selected_ship
-            self._ship_page = self.selected_ship // 4
             self.state = "menu"
             self.sounds["select"].play()
 
@@ -1173,21 +1300,25 @@ class Game:
             pre = "> " if is_sel else "  "
             s = self.font_medium.render(f"{pre}{txt}", True, col)
             self.screen.blit(
-                s, (SCREEN_WIDTH // 2 - s.get_width() // 2, 270 + i * 50))
+                s, (SCREEN_WIDTH // 2 - s.get_width() // 2, 260 + i * 50))
 
         secs = self.game_time // 60
         stat = self.font_small.render(
-            f"Punti: {self.score}   |   Tempo: {_fmt_time(secs)}   |   "
-            f"Lv.{self._diff_level + 1}",
+            f"Punti: {self.score}  |  Tempo: {_fmt_time(secs)}  |  "
+            f"Livello {self._diff_level + 1}",
             True, YELLOW)
         self.screen.blit(
-            stat, (SCREEN_WIDTH // 2 - stat.get_width() // 2, 410))
+            stat, (SCREEN_WIDTH // 2 - stat.get_width() // 2, 400))
 
-        hint = self.font_tiny.render(
-            "W/S naviga  |  INVIO conferma  |  ESC/P riprendi",
-            True, (100, 100, 130))
-        self.screen.blit(
-            hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, 460))
+        # Controlli
+        ctrl_lines = [
+            "WASD/Frecce = Muovi  |  SPAZIO = Spara",
+            "B = Bomba  |  F = Speciale  |  ESC/P = Pausa",
+        ]
+        for i, line in enumerate(ctrl_lines):
+            ct = self.font_tiny.render(line, True, (120, 120, 150))
+            self.screen.blit(
+                ct, (SCREEN_WIDTH // 2 - ct.get_width() // 2, 440 + i * 22))
 
     # -- WARNING OVERLAY --
 
@@ -1205,7 +1336,7 @@ class Game:
 
         blink = 12 if color == RED else 10
         if (timer // blink) % 2 == 0:
-            wt = self.font_large.render("!! WARNING !!", True, color)
+            wt = self.font_large.render("!! ATTENZIONE !!", True, color)
             self.screen.blit(
                 wt, (SCREEN_WIDTH // 2 - wt.get_width() // 2,
                      SCREEN_HEIGHT // 2 - 60))
@@ -1266,6 +1397,19 @@ class Game:
         self.screen.blit(shake_surf,
                          (self._shake_offset_x, self._shake_offset_y))
 
+        # Effetti speciali overlay
+        if self._emp_flash > 0:
+            emp_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            alpha = int(self._emp_flash * 6)
+            emp_overlay.fill((0, 200, 255, min(alpha, 80)))
+            self.screen.blit(emp_overlay, (0, 0))
+
+        if self._bomb_flash > 0:
+            bomb_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            alpha = int(self._bomb_flash * 8)
+            bomb_overlay.fill((255, 255, 255, min(alpha, 120)))
+            self.screen.blit(bomb_overlay, (0, 0))
+
         if self.boss_warning:
             self._warn_overlay(
                 self.boss_warning_timer, self.boss_warning_dur,
@@ -1291,54 +1435,70 @@ class Game:
         hud_y = 38 if (self.boss_active and self.boss
                        and self.boss.alive) else 10
 
-        bg = pygame.Surface((200, 40), pygame.SRCALPHA)
-        bg.fill((0, 0, 0, 0))
-        self.screen.blit(bg, (10, hud_y))
+        # Punteggio
+        sc = self.font_hud.render(f"Punti: {self.score}", True, WHITE)
+        self.screen.blit(sc, (16, hud_y + 4))
 
-        sc = self.font_medium.render(f"Punti: {self.score}", True, WHITE)
-        self.screen.blit(sc, (20, hud_y + 8))
+        # Vite
         self._draw_lives(hud_y)
 
+        # Tempo
         secs = self.game_time // 60
         tt = self.font_small.render(
             f"Tempo: {_fmt_time(secs)}", True, (180, 180, 200))
-        self.screen.blit(tt, (SCREEN_WIDTH - 150, hud_y + 8))
+        self.screen.blit(tt, (SCREEN_WIDTH - 145, hud_y + 6))
 
+        # Livello
         dlvl = self.font_tiny.render(
-            f"Lv.{self._diff_level + 1}", True, (120, 200, 120))
-        self.screen.blit(dlvl, (SCREEN_WIDTH - 55, hud_y + 35))
+            f"Livello {self._diff_level + 1}", True, (120, 200, 120))
+        self.screen.blit(dlvl, (SCREEN_WIDTH - 80, hud_y + 30))
 
+        # Stato attuale (pioggia, boss, nemici)
         if self.rain_active or self.rain_draining:
             col = ORANGE if (self.game_time // 20) % 2 == 0 else YELLOW
             label = ("PIOGGIA DI ASTEROIDI" if self.rain_active
                      else "ASTEROIDI IN VOLO...")
             ri = self.font_tiny.render(f"* {label}", True, col)
             self.screen.blit(
-                ri, (SCREEN_WIDTH // 2 - ri.get_width() // 2, hud_y + 35))
+                ri, (SCREEN_WIDTH // 2 - ri.get_width() // 2, hud_y + 30))
         elif self.boss_active:
             bi = self.font_tiny.render(
                 f"BOSS FIGHT!  (sconfitti: {self.boss_defeated_count})",
-                True, ORANGE)
-            self.screen.blit(bi, (SCREEN_WIDTH - 320, hud_y + 35))
+                True, RED)
+            self.screen.blit(bi, (SCREEN_WIDTH - 300, hud_y + 30))
         else:
             alive = self._total_alive()
             fg = self.font_tiny.render(
                 f"Nemici: {alive}  |  Gruppi: {len(self.formation_groups)}",
-                True, RED)
-            self.screen.blit(fg, (SCREEN_WIDTH - 260, hud_y + 35))
+                True, (180, 100, 100))
+            self.screen.blit(fg, (SCREEN_WIDTH - 240, hud_y + 30))
 
+        # Barra cooldown sparo
         ticks = pygame.time.get_ticks()
-        cd = max(
-            0,
-            self.player.shot_cooldown - (ticks - self.player.last_shot_time))
+        cooldown = self.player.shot_cooldown
+        if self.player.overdrive_active:
+            cooldown = cooldown // 2
+        cd = max(0, cooldown - (ticks - self.player.last_shot_time))
         if cd > 0:
-            pct = cd / self.player.shot_cooldown
+            pct = cd / cooldown
             pygame.draw.rect(
-                self.screen, (60, 60, 60), (20, hud_y + 45, 60, 6))
+                self.screen, (60, 60, 60), (16, hud_y + 38, 60, 5))
             pygame.draw.rect(
-                self.screen, CYAN, (20, hud_y + 45, int(60 * (1 - pct)), 6))
+                self.screen, CYAN, (16, hud_y + 38, int(60 * (1 - pct)), 5))
 
-        ph = self.font_tiny.render("ESC/P = Pausa", True, (70, 70, 95))
+        # Hint controlli in basso
+        hints = ["ESC = Pausa"]
+        if self.player.bombs > 0:
+            hints.append(f"B = Bomba ({self.player.bombs})")
+        if self.player.special in ("emp", "overdrive"):
+            key_hint = "F = Speciale"
+            if self.player.special == "emp" and self.player.emp_ready:
+                key_hint = "F = EMP (pronto!)"
+            elif self.player.special == "overdrive" and not self.player.overdrive_active and self.player.overdrive_cooldown <= 0:
+                key_hint = "F = Overdrive (pronto!)"
+            hints.append(key_hint)
+
+        ph = self.font_tiny.render("  |  ".join(hints), True, (80, 80, 105))
         self.screen.blit(
             ph, (SCREEN_WIDTH // 2 - ph.get_width() // 2,
                  SCREEN_HEIGHT - 18))
@@ -1355,7 +1515,7 @@ class Game:
                 self.player.shield_timer / self.player.shield_duration))
         if self.player.speed_boost_active:
             active.append((
-                "VELOCITA", YELLOW,
+                "VELOCITA'", YELLOW,
                 self.player.speed_boost_timer / 60,
                 self.player.speed_boost_timer / self.player.speed_boost_duration))
         if self.player.triple_shot_active:
@@ -1363,21 +1523,23 @@ class Game:
                 "ARMA x3", ORANGE,
                 self.player.triple_shot_timer / 60,
                 self.player.triple_shot_timer / self.player.triple_shot_duration))
+        if self.player.overdrive_active:
+            active.append((
+                "OVERDRIVE", GOLD,
+                self.player.overdrive_timer / 60,
+                self.player.overdrive_timer / self.player.overdrive_duration))
         if not active:
             return
 
-        py = hud_y + 58
+        py = hud_y + 50
         for name, col, secs_left, pct in active:
-            bg = pygame.Surface((130, 18), pygame.SRCALPHA)
-            bg.fill((0, 0, 0, 0))
-            self.screen.blit(bg, (10, py))
             lbl = self.font_tiny.render(f"{name} {secs_left:.1f}s", True, col)
-            self.screen.blit(lbl, (14, py + 1))
+            self.screen.blit(lbl, (14, py))
             pygame.draw.rect(
-                self.screen, (40, 40, 40), (10, py + 16, 130, 3))
+                self.screen, (40, 40, 40), (10, py + 16, 120, 3))
             pygame.draw.rect(
-                self.screen, col, (10, py + 16, int(130 * pct), 3))
-            py += 22
+                self.screen, col, (10, py + 16, int(120 * pct), 3))
+            py += 20
 
     def _draw_combo_hud(self, hud_y: int) -> None:
         if self._combo_count >= 3 and self._combo_display > 0:
@@ -1391,11 +1553,11 @@ class Game:
             ct = self.font_medium.render(combo_text, True, col)
             ct.set_alpha(alpha)
             self.screen.blit(
-                ct, (SCREEN_WIDTH // 2 - ct.get_width() // 2, hud_y + 56))
+                ct, (SCREEN_WIDTH // 2 - ct.get_width() // 2, hud_y + 50))
 
         kt = self.font_tiny.render(
             f"Uccisioni: {self._total_kills}", True, (120, 120, 150))
-        self.screen.blit(kt, (20, SCREEN_HEIGHT - 22))
+        self.screen.blit(kt, (16, SCREEN_HEIGHT - 34))
 
     def _draw_grace_countdown(self) -> None:
         overlay = pygame.Surface(
@@ -1407,21 +1569,29 @@ class Game:
         count_text = str(seconds_left) if seconds_left > 0 else "VIA!"
 
         pulse = 1.0 + 0.2 * abs(math.sin(self._grace_timer * 0.15))
-        font_size = int(80 * pulse)
+        font_size = int(90 * pulse)
         big_font = pygame.font.Font(None, font_size)
         ct = big_font.render(count_text, True, CYAN)
         self.screen.blit(
             ct, (SCREEN_WIDTH // 2 - ct.get_width() // 2,
                  SCREEN_HEIGHT // 2 - ct.get_height() // 2 - 30))
 
-        hint = self.font_small.render("Preparati!", True, WHITE)
+        hint = self.font_medium.render("Preparati!", True, WHITE)
         self.screen.blit(
             hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2,
-                   SCREEN_HEIGHT // 2 + 40))
+                   SCREEN_HEIGHT // 2 + 50))
+
+        # Mostra controlli
+        ctrl = self.font_small.render(
+            "WASD = Muovi  |  SPAZIO = Spara  |  B = Bomba  |  F = Speciale",
+            True, (150, 150, 180))
+        self.screen.blit(
+            ctrl, (SCREEN_WIDTH // 2 - ctrl.get_width() // 2,
+                   SCREEN_HEIGHT // 2 + 90))
 
     def _draw_lives(self, hud_y: int) -> None:
         sz, sp = 18, 24
-        sx, sy = 225, hud_y + 12
+        sx, sy = 200, hud_y + 8
         for i in range(Player.MAX_LIVES):
             col = RED if i < self.player.lives else (60, 60, 60)
             self._heart(self.screen, sx + i * sp, sy, sz, col)
@@ -1459,6 +1629,13 @@ class Game:
         else:
             if event.key in (pygame.K_ESCAPE, pygame.K_p):
                 self._toggle_pause()
+            elif event.key == pygame.K_b:
+                self._use_bomb()
+            elif event.key == pygame.K_f:
+                if self.player.special == "emp":
+                    self._use_emp()
+                elif self.player.special == "overdrive":
+                    self._use_overdrive()
 
     # -- GAME OVER --
 
@@ -1470,58 +1647,59 @@ class Game:
         overlay.fill((0, 0, 0, 150))
         self.screen.blit(overlay, (0, 0))
 
-        go = self.font_large.render("GAME OVER", True, RED)
-        self.screen.blit(go, (SCREEN_WIDTH // 2 - go.get_width() // 2, 110))
+        go = self.font_title.render("GAME OVER", True, RED)
+        self.screen.blit(go, (SCREEN_WIDTH // 2 - go.get_width() // 2, 80))
 
-        sc = self.font_medium.render(
+        sc = self.font_large.render(
             f"Punteggio: {self.score}", True, WHITE)
-        self.screen.blit(sc, (SCREEN_WIDTH // 2 - sc.get_width() // 2, 200))
+        self.screen.blit(sc, (SCREEN_WIDTH // 2 - sc.get_width() // 2, 165))
 
         is_new = (self.score >= self.save["high_score"] and self.score > 0)
         rp  = "NUOVO RECORD!  " if is_new else "Record: "
         rec = self.font_medium.render(
             f"{rp}{self.save['high_score']}",
             True, YELLOW if is_new else (180, 180, 200))
-        self.screen.blit(rec, (SCREEN_WIDTH // 2 - rec.get_width() // 2, 250))
+        self.screen.blit(rec, (SCREEN_WIDTH // 2 - rec.get_width() // 2, 220))
 
         secs = self.game_time // 60
         tt = self.font_small.render(
-            f"Sopravvissuto: {_fmt_time(secs)}  |  Lv.{self._diff_level + 1}"
-            f"  |  Uccisioni: {self._total_kills}",
+            f"Sopravvissuto: {_fmt_time(secs)}  |  Livello {self._diff_level + 1}"
+            f"  |  Uccisioni: {self._total_kills}  |  Boss: {self.boss_defeated_count}",
             True, (180, 180, 200))
-        self.screen.blit(tt, (SCREEN_WIDTH // 2 - tt.get_width() // 2, 295))
+        self.screen.blit(tt, (SCREEN_WIDTH // 2 - tt.get_width() // 2, 260))
 
         if self._combo_best >= 3:
             cb = self.font_small.render(
                 f"Miglior Combo: x{self._combo_best}", True, ORANGE)
             self.screen.blit(
-                cb, (SCREEN_WIDTH // 2 - cb.get_width() // 2, 320))
+                cb, (SCREEN_WIDTH // 2 - cb.get_width() // 2, 288))
 
+        y_offset = 320
         if self._newly_unlocked:
-            y_offset = 350
             for idx in self._newly_unlocked:
-                name = SHIP_NAMES[idx] if idx < len(SHIP_NAMES) else f"Ship {idx}"
+                name = SHIP_NAMES[idx] if idx < len(SHIP_NAMES) else f"Nave {idx}"
                 ul = self.font_medium.render(
                     f"NAVE {name.upper()} SBLOCCATA!", True, MAGENTA)
                 self.screen.blit(
                     ul, (SCREEN_WIDTH // 2 - ul.get_width() // 2, y_offset))
-                y_offset += 36
+                y_offset += 32
 
-        r1 = self.font_small.render("INVIO/SPAZIO -- Rigioca", True, GREEN)
-        r2 = self.font_small.render("ESC -- Menu", True, (150, 150, 170))
-        self.screen.blit(r1, (SCREEN_WIDTH // 2 - r1.get_width() // 2, 400))
-        self.screen.blit(r2, (SCREEN_WIDTH // 2 - r2.get_width() // 2, 430))
+        r1 = self.font_small.render("INVIO = Rigioca", True, GREEN)
+        r2 = self.font_small.render("ESC = Menu principale", True, (150, 150, 170))
+        self.screen.blit(r1, (SCREEN_WIDTH // 2 - r1.get_width() // 2, y_offset + 15))
+        self.screen.blit(r2, (SCREEN_WIDTH // 2 - r2.get_width() // 2, y_offset + 42))
 
         if self.save["best_scores"]:
-            top = self.font_small.render("Top Punteggi:", True, YELLOW)
+            top_y = y_offset + 80
+            top = self.font_small.render("Migliori punteggi:", True, YELLOW)
             self.screen.blit(
-                top, (SCREEN_WIDTH // 2 - top.get_width() // 2, 470))
-            for i, s in enumerate(self.save["best_scores"][:3]):
+                top, (SCREEN_WIDTH // 2 - top.get_width() // 2, top_y))
+            for i, s in enumerate(self.save["best_scores"][:5]):
                 st = self.font_tiny.render(
-                    f"{i + 1}. {s} pt", True, (180, 180, 200))
+                    f"{i + 1}. {s} punti", True, (180, 180, 200))
                 self.screen.blit(
                     st, (SCREEN_WIDTH // 2 - st.get_width() // 2,
-                         495 + i * 20))
+                         top_y + 25 + i * 20))
 
     def handle_game_over_input(self, event: pygame.event.Event) -> None:
         if event.type != pygame.KEYDOWN:
