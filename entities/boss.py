@@ -1,23 +1,22 @@
 """
 Boss -- 5 varianti con animazione GIF, pattern laser unici, scaling progressivo.
 
-Varianti:
-- Boss 0 (boss.gif):   Classico, 4 cannoni, pattern standard.
-- Boss 1 (boss_1.gif): Burst veloce, spara in sequenza rapida dai cannoni esterni.
-- Boss 2 (boss_2.gif): Ventaglio, spara a ventaglio da un punto centrale.
-- Boss 3 (boss_3.gif): Spirale, laser a cerchio rotante.
-- Boss 4 (boss_4.png): Shotgun, raffica densa in cono largo.
+Varianti (spawn CASUALE con uguale probabilita'):
+- Boss 0 (Titano):      Classico, 4 cannoni con pattern rotanti.
+- Boss 1 (Furia):       Burst veloce, raffiche ravvicinate devastanti.
+- Boss 2 (Ventaglio):   Ventaglio, onde di laser a ventaglio alternato.
+- Boss 3 (Vortice):     Spirale, laser a cerchio rotante con accelerazione.
+- Boss 4 (Devastatore): Shotgun, muro di proiettili + onde d'urto.
 
-Ad ogni sconfitta le statistiche scalano (piu' HP, piu' veloce,
-intervallo sparo ridotto) e la variante del boss successivo cambia.
+Ad ogni sconfitta le statistiche scalano.
 """
 import math
 import random
 import pygame
 
 from core.constants import (
-    SCREEN_WIDTH, WHITE, RED, GREEN, YELLOW, ORANGE, CYAN, MAGENTA,
-    NUM_BOSS_VARIANTS,
+    SCREEN_WIDTH, WHITE, RED, GREEN, YELLOW, ORANGE, CYAN, MAGENTA, GOLD,
+    NUM_BOSS_VARIANTS, BOSS_NAMES,
 )
 from core.assets import Assets
 from entities.laser import Laser
@@ -75,24 +74,49 @@ class Boss:
         # Contatore pattern per la variante spirale
         self._spiral_angle = 0.0
 
-        # Font per la barra vita (creato una sola volta, non ad ogni frame)
-        self._hp_font = pygame.font.Font(None, 20)
+        # Fase del pattern (per varianti con fasi multiple)
+        self._phase = 0
+        self._phase_timer = 0
+        self._phase_shots = 0
 
-        # Cache dello sprite scalato (evita rescale ad ogni frame)
+        # Titano: rotazione cannoni
+        self._titano_rotation = 0
+
+        # Furia: burst counter
+        self._burst_count = 0
+        self._burst_delay = 0
+
+        # Ventaglio: direzione alternata
+        self._fan_direction = 1
+        self._fan_wave = 0
+
+        # Vortice: velocita' spirale
+        self._spiral_speed = 0.4
+        self._spiral_accel = 0.01
+
+        # Devastatore: onda d'urto timer
+        self._shockwave_timer = 0
+        self._shockwave_interval = 120
+
+        # Font per la barra vita
+        self._hp_font = pygame.font.Font(None, 22)
+
+        # Cache dello sprite scalato
         self._cached_scaled: pygame.Surface | None = None
         self._cached_w = 0
         self._cached_h = 0
+
+    @staticmethod
+    def random_variant() -> int:
+        """Sceglie una variante casuale con uguale probabilita' per tutti i 5 boss."""
+        return random.randint(0, NUM_BOSS_VARIANTS - 1)
 
     # ------------------------------------------------------------------
     # UPDATE
     # ------------------------------------------------------------------
 
     def update(self) -> list:
-        """Aggiorna il boss: movimento, animazione e sparo.
-
-        Returns:
-            Lista di Laser sparati in questo frame (vuota se nessuno).
-        """
+        """Aggiorna il boss: movimento, animazione e sparo."""
         if not self.alive:
             return []
 
@@ -126,7 +150,7 @@ class Boss:
             self.frame_timer = 0
             if self.frames:
                 self.frame_idx = (self.frame_idx + 1) % len(self.frames)
-                self._cached_scaled = None  # Invalida cache al cambio frame
+                self._cached_scaled = None
 
         # Hit flash countdown
         if self.hit_flash > 0:
@@ -137,25 +161,52 @@ class Boss:
         if self.shoot_timer >= self.shoot_interval:
             self.shoot_timer = 0
             return self._fire()
-        return []
+
+        # Pattern speciali con timer secondario
+        extra = self._fire_secondary()
+        return extra
 
     # ------------------------------------------------------------------
     # PATTERN DI SPARO PER VARIANTE
     # ------------------------------------------------------------------
 
     def _fire(self) -> list:
-        """Esegue il pattern di sparo basato sulla variante del boss."""
+        """Esegue il pattern di sparo primario basato sulla variante."""
         if self.variant == 0:
-            return self._fire_classic()
+            return self._fire_titano()
         elif self.variant == 1:
-            return self._fire_burst()
+            return self._fire_furia()
         elif self.variant == 2:
-            return self._fire_fan()
+            return self._fire_ventaglio()
         elif self.variant == 3:
-            return self._fire_spiral()
+            return self._fire_vortice()
         elif self.variant == 4:
-            return self._fire_shotgun()
-        return self._fire_classic()
+            return self._fire_devastatore()
+        return self._fire_titano()
+
+    def _fire_secondary(self) -> list:
+        """Pattern secondario con timing indipendente."""
+        lasers = []
+
+        # Furia: burst rapido tra spari principali
+        if self.variant == 1 and self._burst_delay > 0:
+            self._burst_delay -= 1
+            if self._burst_delay == 0 and self._burst_count > 0:
+                self._burst_count -= 1
+                self._burst_delay = 8  # 8 frame tra burst
+                cx, cy = self._cannon_pos(random.choice([0, 3]))
+                lasers.append(Laser(cx, cy, 7, CYAN, is_enemy=True))
+                if self._burst_count <= 0:
+                    self._burst_delay = 0
+
+        # Devastatore: onde d'urto periodiche
+        if self.variant == 4:
+            self._shockwave_timer += 1
+            if self._shockwave_timer >= self._shockwave_interval:
+                self._shockwave_timer = 0
+                lasers.extend(self._fire_shockwave())
+
+        return lasers
 
     def _cannon_pos(self, idx: int) -> tuple[float, float]:
         """Calcola la posizione assoluta di un cannone."""
@@ -163,57 +214,90 @@ class Boss:
         return (self.x + int(self.width * ox) - 2,
                 self.y + int(self.height * oy))
 
-    def _fire_classic(self) -> list:
-        """Variante 0: pattern classico con 3 modalita' casuali."""
-        pattern = random.randint(0, 2)
+    # -- TITANO (Boss 0): Pattern classico con cannoni rotanti --
+    def _fire_titano(self) -> list:
+        """Titano: 3 pattern rotanti -- tutti, a coppie alterne, salva concentrata."""
         lasers: list[Laser] = []
+        self._titano_rotation = (self._titano_rotation + 1) % 4
 
-        if pattern == 0:
+        if self._titano_rotation == 0:
+            # Tutti e 4 i cannoni sparano dritto
             for i in range(4):
                 cx, cy = self._cannon_pos(i)
                 lasers.append(Laser(cx, cy, 5, ORANGE, is_enemy=True))
-        elif pattern == 1:
+        elif self._titano_rotation == 1:
+            # Cannoni esterni: laser convergenti verso il centro
             for i in [0, 3]:
                 cx, cy = self._cannon_pos(i)
-                lasers.append(Laser(cx, cy, 6, RED, is_enemy=True))
-        else:
+                center_x = self.x + self.width // 2
+                dx = (center_x - cx) * 0.03
+                lasers.append(Laser(cx, cy, 5, RED, is_enemy=True, vx=dx))
+        elif self._titano_rotation == 2:
+            # Cannoni interni: laser divergenti
             for i in [1, 2]:
                 cx, cy = self._cannon_pos(i)
-                lasers.append(Laser(cx, cy, 7, YELLOW, is_enemy=True))
+                vx = -2.5 if i == 1 else 2.5
+                lasers.append(Laser(cx, cy, 6, YELLOW, is_enemy=True, vx=vx))
+        else:
+            # Salva concentrata: tutti verso un punto random
+            target_x = random.randint(100, SCREEN_WIDTH - 100)
+            for i in range(4):
+                cx, cy = self._cannon_pos(i)
+                dx = (target_x - cx) * 0.02
+                lasers.append(Laser(cx, cy, 5.5, (255, 130, 50), is_enemy=True, vx=dx))
         return lasers
 
-    def _fire_burst(self) -> list:
-        """Variante 1: burst veloce -- 3 laser ravvicinati dai cannoni esterni."""
+    # -- FURIA (Boss 1): Burst devastanti --
+    def _fire_furia(self) -> list:
+        """Furia: burst di 5 laser ravvicinati dai cannoni laterali + attivazione burst secondario."""
         lasers: list[Laser] = []
+        # Burst principale: 3 laser da ogni lato
         for i in [0, 3]:
             cx, cy = self._cannon_pos(i)
-            for dy in [0, 8, 16]:
-                lasers.append(Laser(cx, cy + dy, 6, CYAN, is_enemy=True))
+            for dy in [0, 10, 20]:
+                speed = 6 + dy * 0.1
+                lasers.append(Laser(cx, cy + dy, speed, CYAN, is_enemy=True))
+
+        # Avvia burst secondario
+        self._burst_count = 3
+        self._burst_delay = 6
         return lasers
 
-    def _fire_fan(self) -> list:
-        """Variante 2: ventaglio -- laser in 5 direzioni dal centro."""
+    # -- VENTAGLIO (Boss 2): Onde a ventaglio alternato --
+    def _fire_ventaglio(self) -> list:
+        """Ventaglio: ventaglio di 7 laser con direzione alternata e ampiezza variabile."""
         lasers: list[Laser] = []
         center_x = self.x + self.width // 2
         center_y = self.y + self.height
-        angles = [-40, -20, 0, 20, 40]
 
-        for angle_deg in angles:
+        self._fan_wave += 1
+        n_rays = 7
+        # Ampiezza che oscilla tra 30 e 60 gradi
+        spread = 30 + 30 * abs(math.sin(self._fan_wave * 0.3))
+
+        base_angle = self._fan_direction * 10  # offset leggero alternato
+        for i in range(n_rays):
+            angle_deg = base_angle + (-spread + (2 * spread / (n_rays - 1)) * i)
             rad = math.radians(angle_deg)
-            vx = math.sin(rad) * 4
+            vx = math.sin(rad) * 4.5
             vy = math.cos(rad) * 5
             lasers.append(Laser(
                 center_x - 2, center_y, vy, MAGENTA,
                 is_enemy=True, vx=vx))
+
+        self._fan_direction *= -1
         return lasers
 
-    def _fire_spiral(self) -> list:
-        """Variante 3: spirale -- 2 laser rotanti ad ogni sparo."""
+    # -- VORTICE (Boss 3): Spirale rotante con accelerazione --
+    def _fire_vortice(self) -> list:
+        """Vortice: 3 bracci di spirale rotante che accelerano gradualmente."""
         lasers: list[Laser] = []
         center_x = self.x + self.width // 2
         center_y = self.y + self.height
 
-        for offset in [0, math.pi]:
+        n_arms = 3
+        for arm in range(n_arms):
+            offset = (2 * math.pi / n_arms) * arm
             angle = self._spiral_angle + offset
             vx = math.sin(angle) * 3.5
             vy = math.cos(angle) * 4.0 + 1.5
@@ -221,25 +305,49 @@ class Boss:
                 center_x - 2, center_y, vy, GREEN,
                 is_enemy=True, vx=vx))
 
-        self._spiral_angle += 0.5
+        # Accelerazione graduale della spirale
+        self._spiral_speed += self._spiral_accel
+        if self._spiral_speed > 1.2:
+            self._spiral_speed = 0.4  # reset
+        self._spiral_angle += self._spiral_speed
+
         return lasers
 
-    def _fire_shotgun(self) -> list:
-        """Variante 4: shotgun -- raffica densa in cono largo."""
+    # -- DEVASTATORE (Boss 4): Muro di proiettili --
+    def _fire_devastatore(self) -> list:
+        """Devastatore: muro di 8-12 proiettili in cono + proiettili mirati."""
         lasers: list[Laser] = []
         center_x = self.x + self.width // 2
         center_y = self.y + self.height
 
-        n_shots = random.randint(5, 8)
+        # Muro di proiettili
+        n_shots = random.randint(8, 12)
         for _ in range(n_shots):
-            spread = random.uniform(-50, 50)
+            spread = random.uniform(-55, 55)
             rad = math.radians(spread)
-            vx = math.sin(rad) * 3
+            vx = math.sin(rad) * 3.5
             vy = random.uniform(4, 7)
             lasers.append(Laser(
-                center_x + random.randint(-15, 15),
+                center_x + random.randint(-20, 20),
                 center_y,
                 vy, YELLOW, is_enemy=True, vx=vx))
+
+        return lasers
+
+    def _fire_shockwave(self) -> list:
+        """Onda d'urto: cerchio di laser in tutte le direzioni."""
+        lasers: list[Laser] = []
+        center_x = self.x + self.width // 2
+        center_y = self.y + self.height // 2
+
+        n = 12
+        for i in range(n):
+            angle = (2 * math.pi / n) * i
+            vx = math.sin(angle) * 3
+            vy = math.cos(angle) * 3
+            lasers.append(Laser(
+                center_x - 2, center_y, vy, RED,
+                is_enemy=True, vx=vx))
         return lasers
 
     # ------------------------------------------------------------------
@@ -247,14 +355,7 @@ class Boss:
     # ------------------------------------------------------------------
 
     def take_damage(self, amount: int = 1) -> bool:
-        """Applica danno al boss e attiva il flash visivo.
-
-        Args:
-            amount: Quantita' di danno.
-
-        Returns:
-            True se il boss e' stato sconfitto.
-        """
+        """Applica danno al boss e attiva il flash visivo."""
         self.hp -= amount
         self.hit_flash = self.hit_flash_max
         if self.hp <= 0:
@@ -284,10 +385,8 @@ class Boss:
             h2 = self.height + pulse * 2
             scaled = pygame.transform.scale(frame, (w2, h2))
             surf.blit(scaled, (int(self.x) - pulse, int(self.y) - pulse))
-            # Invalida cache dopo il flash
             self._cached_scaled = None
         else:
-            # Usa cache se dimensioni non sono cambiate
             if (self._cached_scaled is None
                     or self._cached_w != self.width
                     or self._cached_h != self.height):
@@ -302,7 +401,7 @@ class Boss:
         if not self.alive:
             return
 
-        bw, bh = 400, 16
+        bw, bh = 400, 18
         bx = SCREEN_WIDTH // 2 - bw // 2
         by = 8
 
@@ -323,15 +422,15 @@ class Boss:
         if fw > 0:
             pygame.draw.rect(surf, col, (bx, by, fw, bh))
 
-        # Tacche di separazione (quarti)
+        # Tacche di separazione
         for s in range(1, 4):
             sx = bx + bw * s // 4
             pygame.draw.line(surf, (12, 12, 18), (sx, by), (sx, by + bh), 1)
 
-        # Etichetta
-        variant_names = ["BOSS", "BOSS BURST", "BOSS FAN", "BOSS SPIRAL", "BOSS SHOTGUN"]
-        vname = variant_names[self.variant] if self.variant < len(variant_names) else "BOSS"
-        label = self._hp_font.render(f"{vname}  {self.hp}/{self.max_hp}", True, WHITE)
+        # Etichetta con nome boss
+        vname = BOSS_NAMES[self.variant] if self.variant < len(BOSS_NAMES) else "BOSS"
+        label = self._hp_font.render(
+            f"{vname}  {self.hp}/{self.max_hp}", True, WHITE)
         surf.blit(label, (bx + bw // 2 - label.get_width() // 2, by + 1))
 
     def get_rect(self) -> pygame.Rect:

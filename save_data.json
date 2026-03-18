@@ -5,15 +5,13 @@
     true,
     false,
     false,
-    false,
-    false,
-    false,
-    false,
-    false,
     false
   ],
   "best_scores": [
     281,
     177
-  ]
+  ],
+  "total_playtime": 0,
+  "total_kills": 0,
+  "bosses_defeated": 0
 }

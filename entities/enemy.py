@@ -2,20 +2,16 @@
 Enemy -- sprite animato da GIF, shake + mini-esplosione all'hit, pattern laser.
 
 I 4 tipi di nemico usano sprite animati estratti da ``enemy_ships.gif``:
-- scout:   laser singolo veloce, intervallo breve
-- fighter: laser doppio (offset laterale), intervallo intermedio
-- bomber:  laser lento ma largo, lungo intervallo
-- elite:   burst da 3 laser ravvicinati, intervallo medio
-
-Effetto hit (nemici con >1 HP):
-- Shake (oscillazione rapida dello sprite)
-- Mini-esplosione (``explosion.gif``) al punto d'impatto
+- scout:   laser singolo veloce, HP 1, punti 1
+- fighter: laser doppio (offset laterale), HP 2, punti 3
+- bomber:  laser lento ma pesante, HP 4, punti 5
+- elite:   burst da 3 laser ravvicinati, HP 3, punti 8
 """
 
 import random
 import pygame
 
-from core.constants import ENEMY_W, ENEMY_H, RED, ORANGE, YELLOW, CYAN
+from core.constants import ENEMY_W, ENEMY_H, RED, ORANGE, YELLOW, CYAN, ENEMY_TYPE_STATS
 from core.assets import Assets
 from entities.formations import Slot
 
@@ -92,7 +88,7 @@ class Enemy:
         # Animazione GIF
         self._frame_idx   = 0
         self._frame_timer = 0
-        self._frame_delay = 8  # tick di gioco per frame GIF
+        self._frame_delay = 8
 
     # ------------------------------------------------------------------
     # DANNO
@@ -101,14 +97,8 @@ class Enemy:
     def take_damage(self, amount: int = 1) -> bool:
         """Applica danno al nemico e attiva shake + mini-esplosione.
 
-        Lo shake e la mini-esplosione vengono attivati **solo** se il
-        nemico sopravvive (multi-HP).
-
-        Args:
-            amount: Quantita' di danno da applicare.
-
         Returns:
-            ``True`` se il nemico e' stato ucciso, ``False`` altrimenti.
+            ``True`` se il nemico e' stato ucciso.
         """
         self.hp -= amount
 
@@ -126,11 +116,9 @@ class Enemy:
     # ------------------------------------------------------------------
 
     def _get_frames(self) -> list[pygame.Surface]:
-        """Restituisce la lista di frame per il tipo di nemico."""
         frames = Assets.enemy_frames.get(self.enemy_type)
         if frames:
             return frames
-        # Fallback: scout
         return Assets.enemy_frames.get("scout", [])
 
     # ------------------------------------------------------------------
@@ -138,11 +126,7 @@ class Enemy:
     # ------------------------------------------------------------------
 
     def build_lasers(self) -> list:
-        """Costruisce i laser secondo il pattern del tipo di nemico.
-
-        Returns:
-            Lista di oggetti ``Laser``.
-        """
+        """Costruisce i laser secondo il pattern del tipo di nemico."""
         from entities.laser import Laser
 
         cx  = self.x + self.width // 2
@@ -157,8 +141,12 @@ class Enemy:
             lasers.append(Laser(cx - 10, by, spd, col, is_enemy=True))
             lasers.append(Laser(cx + 8,  by, spd, col, is_enemy=True))
         elif self.enemy_type == "bomber":
-            lasers.append(Laser(cx - 3, by, spd, col, is_enemy=True))
+            # Bomber: laser lento ma largo (3 paralleli)
+            lasers.append(Laser(cx - 8, by, spd, col, is_enemy=True))
+            lasers.append(Laser(cx - 2, by, spd, col, is_enemy=True))
+            lasers.append(Laser(cx + 4, by, spd, col, is_enemy=True))
         elif self.enemy_type == "elite":
+            # Elite: burst di 3 laser rapidi
             for dy in [0, 6, 12]:
                 lasers.append(Laser(cx - 2, by + dy, spd, col, is_enemy=True))
         else:
@@ -196,17 +184,37 @@ class Enemy:
             frame = frames[self._frame_idx % len(frames)]
             surf.blit(frame, (int(self.x + offset_x), int(self.y)))
         else:
-            # Fallback: rettangolo colorato
             pygame.draw.rect(
                 surf, RED,
                 (int(self.x + offset_x), int(self.y), self.width, self.height))
+
+        # Barra HP per nemici multi-HP
+        if self.max_hp > 1 and self.hp > 0:
+            self._draw_hp_bar(surf)
+
+    def _draw_hp_bar(self, surf: pygame.Surface) -> None:
+        """Disegna una piccola barra HP sopra il nemico."""
+        bar_w = self.width - 10
+        bar_h = 3
+        bar_x = self.x + 5
+        bar_y = self.y - 5
+
+        pct = self.hp / self.max_hp
+        pygame.draw.rect(surf, (40, 40, 40), (int(bar_x), int(bar_y), bar_w, bar_h))
+
+        if pct > 0.5:
+            col = (50, 255, 50)
+        elif pct > 0.25:
+            col = (255, 255, 50)
+        else:
+            col = (255, 50, 50)
+        pygame.draw.rect(surf, col, (int(bar_x), int(bar_y), int(bar_w * pct), bar_h))
 
     # ------------------------------------------------------------------
     # HITBOX
     # ------------------------------------------------------------------
 
     def get_rect(self) -> pygame.Rect:
-        """Restituisce la hitbox del nemico, ridotta rispetto allo sprite."""
         sx, sy = 6, 4
         return pygame.Rect(
             self.x + sx,
