@@ -1,8 +1,11 @@
 """
 Costanti globali del gioco.
 
-Contiene tutte le costanti condivise: dimensioni schermo, colori,
-dimensioni sprite, tipi di power-up e impostazioni generali.
+Contiene tutte le costanti condivise tra i moduli: dimensioni schermo,
+colori, dimensioni sprite, tipi di power-up e parametri di difficolta'.
+
+Nota: le costanti sono organizzate per categoria per facilitare la
+manutenzione e la ricerca.
 """
 
 # ============================================================================
@@ -13,7 +16,7 @@ SCREEN_HEIGHT = 600
 FPS = 60
 
 # ============================================================================
-# COLORI
+# COLORI (R, G, B)
 # ============================================================================
 BLACK      = (0, 0, 0)
 WHITE      = (255, 255, 255)
@@ -29,13 +32,17 @@ PANEL_BG   = (20, 20, 35)
 STAR_WHITE = (200, 200, 220)
 
 # ============================================================================
-# DIMENSIONI SPRITE
+# DIMENSIONI SPRITE (pixel)
 # ============================================================================
-ENEMY_SIZE       = 50
+ENEMY_W          = 60      # larghezza nemico base (UFO e' piu' largo che alto)
+ENEMY_H          = 44      # altezza nemico base
 ASTEROID_SIZE    = 60
 CARRIER_SIZE     = 55
 POWERUP_ITEM_SIZE = 35
 EXPLOSION_SIZE   = 64
+
+# Alias retrocompatibile usato internamente nelle formazioni
+ENEMY_SIZE = ENEMY_W
 
 # ============================================================================
 # TIPI DI POWER-UP
@@ -51,10 +58,10 @@ POWERUP_COLORS = {
 }
 
 # ============================================================================
-# DIFFICOLTÀ PROGRESSIVA
+# DIFFICOLTA' PROGRESSIVA
 # ============================================================================
-# Ogni DIFFICULTY_INTERVAL secondi di gioco la difficoltà aumenta di un livello.
-# La velocità dei nemici viene moltiplicata per DIFFICULTY_SPEED_SCALE per livello.
-DIFFICULTY_INTERVAL = 30        # secondi
-DIFFICULTY_SPEED_SCALE = 1.12   # +12% velocità nemici per livello
-DIFFICULTY_MAX_LEVEL = 8        # livello massimo (cap)
+# Ogni DIFFICULTY_INTERVAL secondi di gioco la difficolta' aumenta di un livello.
+# La velocita' dei nemici viene moltiplicata per DIFFICULTY_SPEED_SCALE per livello.
+DIFFICULTY_INTERVAL    = 30        # secondi tra un livello e l'altro
+DIFFICULTY_SPEED_SCALE = 1.12      # +12% velocita' nemici per livello
+DIFFICULTY_MAX_LEVEL   = 8         # livello massimo (cap)

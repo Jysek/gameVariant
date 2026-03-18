@@ -1,9 +1,24 @@
-"""Space Shooter -- Infinite Survival  |  game.py v5
+"""Space Shooter -- Infinite Survival  |  game.py v6
+
 Autori: Ceccariglia Emanuele & Andrea Cestelli -- ITSUmbria 2026
 
-Game loop principale, gestione stati, spawn, collisioni, HUD e pause.
+Game loop principale, gestione stati, spawn, collisioni, HUD e pausa.
+
+Changelog v6 rispetto a v5:
+- Nemici base usano ``alien.png`` con dimensione ``ENEMY_W x ENEMY_H``.
+- 15+ formazioni con sistema anti-ripetizione.
+- Hitbox flash bianco rimosso dai nemici; sostituito con shake (come il boss).
+- Pioggia asteroidi: corridoio sicuro garantito.
+- Fix: ``_chk_pl_vs_boss()`` -- ``break`` nel ciclo laser corretto in ``continue``.
+- Fix: ``_upd_boss_warning`` aggiorna anche le formazioni attive.
+- Fix: reset_game() pulisce anche lo storico formazioni.
+- Refactoring generale e commenti professionali.
 """
-import math, random, sys
+
+import math
+import random
+import sys
+
 import pygame
 
 from core.constants import (
@@ -22,7 +37,9 @@ from entities.laser import Laser
 from entities.explosion import Explosion
 from entities.powerup import PowerUpCarrier, FallingPowerUp
 from entities.asteroid import Asteroid, clear_registry
-from entities.formations import pick_formation, build_spawn_positions
+from entities.formations import (
+    pick_formation, build_spawn_positions, reset_formation_history,
+)
 from entities.formation_group import FormationGroup
 
 from world.starfield import StarField
@@ -36,7 +53,11 @@ _MIN_GROUP_V_GAP = 140  # pixel
 
 
 class Game:
-    """Classe principale del gioco: gestisce game loop, stati e rendering."""
+    """Classe principale del gioco: gestisce game loop, stati e rendering.
+
+    La macchina a stati gestisce le seguenti fasi:
+    ``menu`` -> ``ship_select`` / ``credits`` / ``playing`` -> ``game_over``
+    """
 
     # ======================================================================
     # INIT
@@ -64,14 +85,14 @@ class Game:
         self.font_tiny   = pygame.font.Font(None, 22)
 
         # Stato corrente della macchina a stati
-        self.state          = "menu"
-        self.selected_ship  = 0
-        self.menu_selection = 0
-        self._music_channel = None
-        self._credits_scroll = float(SCREEN_HEIGHT)
+        self.state: str            = "menu"
+        self.selected_ship: int    = 0
+        self.menu_selection: int   = 0
+        self._music_channel        = None
+        self._credits_scroll: float = float(SCREEN_HEIGHT)
 
         # Pausa: selezione voce nel menu di pausa (0 = Riprendi, 1 = Menu)
-        self._pause_selection = 0
+        self._pause_selection: int = 0
 
         self.reset_game()
 
@@ -79,12 +100,12 @@ class Game:
     # MUSICA
     # ======================================================================
 
-    def _start_music(self):
+    def _start_music(self) -> None:
         """Avvia la musica di sottofondo in loop (se non gia' in riproduzione)."""
         if self._music_channel is None or not self._music_channel.get_busy():
             self._music_channel = self.bg_music.play(loops=-1)
 
-    def _stop_music(self):
+    def _stop_music(self) -> None:
         """Ferma la musica di sottofondo."""
         if self._music_channel:
             self._music_channel.stop()
@@ -93,16 +114,27 @@ class Game:
     # RESET
     # ======================================================================
 
-    def reset_game(self):
-        """Resetta completamente lo stato di gioco per una nuova partita."""
-        clear_registry()
+    def reset_game(self) -> None:
+        """Resetta completamente lo stato di gioco per una nuova partita.
 
-        self.player            = Player(self.selected_ship)
+        Pulisce tutte le liste di entita', resetta timer e contatori,
+        e resetta lo storico formazioni per evitare bias.
+        """
+        clear_registry()
+        reset_formation_history()
+
+        self.player = Player(self.selected_ship)
+
+        # Liste entita'
         self.formation_groups: list[FormationGroup] = []
-        self.player_lasers:    list[Laser]     = []
-        self.enemy_lasers:     list[Laser]     = []
-        self.explosions:       list[Explosion]  = []
-        self.score = 0
+        self.player_lasers:    list[Laser]          = []
+        self.enemy_lasers:     list[Laser]          = []
+        self.explosions:       list[Explosion]       = []
+        self.carriers:         list[PowerUpCarrier]  = []
+        self.falling_powerups: list[FallingPowerUp]  = []
+        self.asteroids:        list[Asteroid]        = []
+
+        self.score     = 0
         self.game_time = 0
 
         # Timer e intervallo spawn formazioni nemiche
@@ -110,48 +142,44 @@ class Game:
         self.spawn_interval = random.randint(120, 300)
 
         # Boss
-        self.boss = None
-        self.boss_active       = False
-        self.boss_warning      = False
-        self.boss_warning_timer = 0
-        self.boss_warning_dur  = 180         # 3 secondi di avviso
-        self.boss_defeated_count = 0
-        self.next_boss_time    = random.randint(35 * 60, 65 * 60)
-        self.boss_cooldown     = 0
+        self.boss: Boss | None     = None
+        self.boss_active: bool     = False
+        self.boss_warning: bool    = False
+        self.boss_warning_timer    = 0
+        self.boss_warning_dur      = 180       # 3 secondi di avviso
+        self.boss_defeated_count   = 0
+        self.next_boss_time        = random.randint(35 * 60, 65 * 60)
+        self.boss_cooldown         = 0
 
         # Carrier power-up
-        self.carriers:         list[PowerUpCarrier] = []
-        self.falling_powerups: list[FallingPowerUp] = []
         self.carrier_timer    = 0
         self.carrier_interval = random.randint(12 * 60, 28 * 60)
 
         # Asteroidi singoli
-        self.asteroids:        list[Asteroid] = []
         self.asteroid_timer    = 0
         self.asteroid_interval = random.randint(10 * 60, 22 * 60)
 
-        # ---- Pioggia di asteroidi ----
-        self.rain_active    = False
-        self.rain_warning   = False
-        self.rain_w_timer   = 0
-        self.rain_w_dur     = 180            # 3 secondi di avviso
-        self.rain_timer     = 0
-        self.rain_dur       = 0              # durata totale pioggia (calcolata a _start_rain)
-        self.rain_spawn_t   = 0
-        self.rain_spawn_i   = 35             # intervallo spawn singolo asteroide
-        self.next_rain      = random.randint(50 * 60, 100 * 60)
-        self.rain_cooldown  = 0
-        self.rain_max       = 0              # max asteroidi contemporanei
-        # Flag: la pioggia ha smesso di spawnare ma restano asteroidi in volo
-        self.rain_draining  = False
+        # -- Pioggia di asteroidi --
+        self.rain_active: bool   = False
+        self.rain_warning: bool  = False
+        self.rain_w_timer        = 0
+        self.rain_w_dur          = 180       # 3 secondi di avviso
+        self.rain_timer          = 0
+        self.rain_dur            = 0         # calcolata in _start_rain
+        self.rain_spawn_t        = 0
+        self.rain_spawn_i        = 35        # intervallo spawn singolo asteroide
+        self.next_rain           = random.randint(50 * 60, 100 * 60)
+        self.rain_cooldown       = 0
+        self.rain_max            = 0         # max asteroidi contemporanei
+        self.rain_draining: bool = False
 
         # Difficolta' progressiva
-        self._diff_level  = 0
-        self._next_diff   = DIFFICULTY_INTERVAL * 60
+        self._diff_level = 0
+        self._next_diff  = DIFFICULTY_INTERVAL * 60
 
         # Pausa
-        self._paused          = False
-        self._pause_selection = 0
+        self._paused: bool     = False
+        self._pause_selection  = 0
 
     # ======================================================================
     # DIFFICOLTA'
@@ -161,7 +189,7 @@ class Game:
         """Restituisce il moltiplicatore di velocita' per il livello corrente."""
         return DIFFICULTY_SPEED_SCALE ** self._diff_level
 
-    def _update_diff(self):
+    def _update_diff(self) -> None:
         """Avanza il livello di difficolta' se il tempo lo permette."""
         if self._diff_level >= DIFFICULTY_MAX_LEVEL:
             return
@@ -176,14 +204,12 @@ class Game:
     def _can_spawn_group(self) -> bool:
         """Verifica che nessun gruppo esistente sia ancora troppo in alto.
 
-        Un nuovo gruppo spawna sopra lo schermo (y negativa). Per evitare
-        sovrapposizioni, si aspetta che tutti i gruppi gia' presenti
-        abbiano il bordo superiore almeno a `_MIN_GROUP_V_GAP` pixel.
-        Controlla anche che non ci siano troppi gruppi attivi.
+        Un nuovo gruppo spawna sopra lo schermo (y negativa).  Per evitare
+        sovrapposizioni, si aspetta che tutti i gruppi gia' presenti abbiano
+        il bordo superiore almeno a ``_MIN_GROUP_V_GAP`` pixel.
         """
         if not self.formation_groups:
             return True
-        # Massimo 3 gruppi attivi contemporaneamente
         if len(self.formation_groups) >= 3:
             return False
         for g in self.formation_groups:
@@ -199,21 +225,20 @@ class Game:
     # SPAWN
     # ======================================================================
 
-    def _spawn_formation(self):
+    def _spawn_formation(self) -> None:
         """Tenta di spawnare una nuova formazione nemica.
 
         Condizioni di blocco:
-        - Boss attivo o in arrivo
-        - Pioggia attiva o in arrivo
-        - Troppi nemici gia' vivi (cap dinamico per livello)
-        - Un gruppo precedente non e' sceso abbastanza
+        - Boss attivo o in arrivo.
+        - Pioggia attiva o in arrivo.
+        - Troppi nemici gia' vivi (cap dinamico per livello).
+        - Un gruppo precedente non e' sceso abbastanza.
         """
         if self.boss_active or self.boss_warning:
             return
         if self.rain_active or self.rain_warning or self.rain_draining:
             return
 
-        # Cap nemici vivi: 6 base + 2 per livello di difficolta'
         max_alive = 6 + self._diff_level * 2
         if self._total_alive() >= max_alive:
             return
@@ -232,11 +257,11 @@ class Game:
 
         # Scegli e costruisci la formazione
         name, slots = pick_formation(self._diff_level)
-        data = build_spawn_positions(slots, self.formation_groups)
+        data  = build_spawn_positions(slots, self.formation_groups)
         group = FormationGroup(data, self._speed_mult(), name, self._diff_level)
         self.formation_groups.append(group)
 
-    def _spawn_carriers(self):
+    def _spawn_carriers(self) -> None:
         """Gestisce lo spawn periodico dei carrier power-up."""
         self.carrier_timer += 1
         if self.carrier_timer >= self.carrier_interval:
@@ -245,7 +270,7 @@ class Game:
             if len(self.carriers) < 2:
                 self.carriers.append(PowerUpCarrier())
 
-    def _spawn_asteroids(self):
+    def _spawn_asteroids(self) -> None:
         """Gestisce lo spawn periodico di asteroidi singoli (fuori dalla pioggia)."""
         if self.rain_active or self.rain_warning or self.rain_draining:
             return
@@ -254,14 +279,16 @@ class Game:
             self.asteroid_timer = 0
             self.asteroid_interval = random.randint(10 * 60, 22 * 60)
             if len(self.asteroids) < 2:
-                self.asteroids.append(Asteroid())
-                self.sounds["asteroid_warning"].play()
+                ast = Asteroid()
+                if ast.active:
+                    self.asteroids.append(ast)
+                    self.sounds["asteroid_warning"].play()
 
     # ======================================================================
     # EVENTI SPECIALI: BOSS
     # ======================================================================
 
-    def _check_boss(self):
+    def _check_boss(self) -> None:
         """Controlla se e' il momento di far apparire il boss."""
         if self.boss_active or self.boss_warning:
             return
@@ -275,13 +302,12 @@ class Game:
             self.boss_warning_timer = 0
             self.sounds["boss_warning"].play()
 
-    def _do_spawn_boss(self):
+    def _do_spawn_boss(self) -> None:
         """Spawna il boss dopo il warning e scala le sue statistiche."""
         self.boss = Boss()
-        self.boss_active = True
+        self.boss_active  = True
         self.boss_warning = False
 
-        # Scala HP, velocita' e intervallo sparo in base al numero di boss sconfitti
         bonus = self.boss_defeated_count * 10
         self.boss.max_hp = 60 + bonus
         self.boss.hp     = self.boss.max_hp
@@ -292,10 +318,11 @@ class Game:
         self.formation_groups.clear()
         self.enemy_lasers.clear()
 
-    def _on_boss_defeated(self):
-        """Gestisce la sconfitta del boss: esplosioni, punteggio, reset cooldown."""
+    def _on_boss_defeated(self) -> None:
+        """Gestisce la sconfitta del boss: esplosioni, punteggio, cooldown."""
         cx = self.boss.x + self.boss.width // 2
         cy = self.boss.y + self.boss.height // 2
+
         # Esplosione grande + esplosioni minori casuali
         self.explosions.append(Explosion(cx, cy, size=128))
         for _ in range(5):
@@ -311,7 +338,7 @@ class Game:
         self.boss = None
 
         # Cooldown e prossimo boss
-        self.boss_cooldown = random.randint(18 * 60, 38 * 60)
+        self.boss_cooldown  = random.randint(18 * 60, 38 * 60)
         self.next_boss_time = self.game_time + random.randint(30 * 60, 60 * 60)
         self.enemy_lasers.clear()
 
@@ -319,7 +346,7 @@ class Game:
     # EVENTI SPECIALI: PIOGGIA DI ASTEROIDI
     # ======================================================================
 
-    def _check_rain(self):
+    def _check_rain(self) -> None:
         """Controlla se e' il momento di attivare la pioggia di asteroidi."""
         if self.rain_active or self.rain_warning or self.rain_draining:
             return
@@ -333,21 +360,22 @@ class Game:
             self.rain_w_timer = 0
             self.sounds["asteroid_rain_warning"].play()
 
-    def _start_rain(self):
-        """Avvia la fase attiva della pioggia di asteroidi."""
-        self.rain_active  = True
-        self.rain_warning = False
+    def _start_rain(self) -> None:
+        """Avvia la fase attiva della pioggia di asteroidi.
+
+        I parametri di durata, intervallo e cap vengono calcolati in base
+        al livello di difficolta' corrente.
+        """
+        self.rain_active   = True
+        self.rain_warning  = False
         self.rain_draining = False
 
-        # Durata e cap asteroidi basati sul livello di difficolta'
-        base_dur = 8 * 60 + self._diff_level * 60   # 8-16s circa
-        self.rain_dur = min(base_dur, 16 * 60)
-        self.rain_timer = 0
+        base_dur = 8 * 60 + self._diff_level * 60
+        self.rain_dur     = min(base_dur, 16 * 60)
+        self.rain_timer   = 0
         self.rain_spawn_t = 0
-        # Intervallo spawn: piu' rapido a livelli alti
         self.rain_spawn_i = max(22, 45 - self._diff_level * 3)
-        # Cap asteroidi contemporanei sullo schermo
-        self.rain_max = 4 + self._diff_level
+        self.rain_max     = 4 + self._diff_level
 
         # Pulisci il campo
         self.formation_groups.clear()
@@ -357,28 +385,27 @@ class Game:
         self.asteroids.clear()
         clear_registry()
 
-    def _end_rain(self):
+    def _end_rain(self) -> None:
         """Termina la fase di spawn della pioggia.
 
-        NON rimuove immediatamente gli asteroidi ancora in volo:
-        attiva la fase 'draining' in cui gli asteroidi rimanenti
-        completano la loro caduta naturalmente.
+        NON rimuove gli asteroidi in volo: attiva la fase 'draining'
+        in cui completano la caduta naturalmente.
         """
-        self.rain_active = False
-        self.rain_draining = True  # gli asteroidi in volo continuano
+        self.rain_active   = False
+        self.rain_draining = True
 
-    def _finish_rain_drain(self):
-        """Chiamata quando tutti gli asteroidi della pioggia sono usciti dallo schermo."""
+    def _finish_rain_drain(self) -> None:
+        """Chiamata quando tutti gli asteroidi della pioggia sono usciti."""
         self.rain_draining = False
         self.rain_cooldown = random.randint(45 * 60, 90 * 60)
-        self.next_rain = self.game_time + random.randint(50 * 60, 100 * 60)
+        self.next_rain     = self.game_time + random.randint(50 * 60, 100 * 60)
         clear_registry()
 
     # ======================================================================
     # UPDATE GAMEPLAY
     # ======================================================================
 
-    def update_game(self):
+    def update_game(self) -> None:
         """Aggiorna lo stato di gioco di un frame (chiamata ogni tick)."""
         if self._paused:
             return
@@ -390,30 +417,36 @@ class Game:
         # Smista l'aggiornamento in base alla fase corrente
         if self.boss_warning:
             self._upd_boss_warning(keys)
-            return
-        if self.rain_warning:
+        elif self.rain_warning:
             self._upd_rain_warning(keys)
-            return
-        if self.rain_active:
+        elif self.rain_active:
             self._upd_rain(keys)
-            return
-        if self.rain_draining:
+        elif self.rain_draining:
             self._upd_rain_drain(keys)
-            return
-        self._upd_normal(keys)
+        else:
+            self._upd_normal(keys)
 
-    # ---- Sotto-fasi di update ----
+    # -- Sotto-fasi di update --
 
-    def _upd_boss_warning(self, keys):
-        """Update durante il warning del boss (3 secondi di lampeggio)."""
+    def _upd_boss_warning(self, keys) -> None:
+        """Update durante il warning del boss (3 secondi di lampeggio).
+
+        Il giocatore puo' comunque muoversi e le formazioni gia' presenti
+        continuano a scendere.
+        """
         self.boss_warning_timer += 1
         if self.boss_warning_timer >= self.boss_warning_dur:
             self._do_spawn_boss()
         self.player.update(keys)
+
+        # Le formazioni attive continuano il loro ciclo durante il warning
+        for g in self.formation_groups:
+            g.update()
+
         self._upd_explosions()
         self._upd_asteroids()
 
-    def _upd_rain_warning(self, keys):
+    def _upd_rain_warning(self, keys) -> None:
         """Update durante il warning della pioggia (3 secondi di lampeggio)."""
         self.rain_w_timer += 1
         if self.rain_w_timer >= self.rain_w_dur:
@@ -421,21 +454,20 @@ class Game:
         self.player.update(keys)
         self._upd_explosions()
 
-    def _upd_rain(self, keys):
-        """Update durante la pioggia attiva: spawna asteroidi e aggiorna tutto."""
+    def _upd_rain(self, keys) -> None:
+        """Update durante la pioggia attiva: spawna asteroidi e aggiorna."""
         self.rain_timer += 1
         if self.rain_timer >= self.rain_dur:
-            # Stop spawn, ma lascia gli asteroidi in volo completare la caduta
             self._end_rain()
         else:
-            # Spawna nuovi asteroidi se sotto il cap
             self.rain_spawn_t += 1
             if (self.rain_spawn_t >= self.rain_spawn_i
                     and len(self.asteroids) < self.rain_max):
                 self.rain_spawn_t = 0
-                self.asteroids.append(Asteroid())
+                ast = Asteroid()
+                if ast.active:
+                    self.asteroids.append(ast)
 
-        # Aggiorna player e tutte le entita'
         self.player.update(keys)
         self._shoot(keys)
         self._upd_all_entities()
@@ -447,12 +479,8 @@ class Game:
         if not self.player.alive:
             self._game_over()
 
-    def _upd_rain_drain(self, keys):
-        """Update dopo la pioggia: gli asteroidi in volo completano la caduta.
-
-        Nessun nuovo asteroide viene spawnato. Quando tutti sono usciti
-        dallo schermo, si torna alla fase normale.
-        """
+    def _upd_rain_drain(self, keys) -> None:
+        """Update dopo la pioggia: asteroidi in volo completano la caduta."""
         self.player.update(keys)
         self._shoot(keys)
         self._upd_all_entities()
@@ -462,15 +490,14 @@ class Game:
         self._chk_pu_player(pr)
         self._cleanup()
 
-        # Se non ci sono piu' asteroidi, la fase draining e' finita
         if not self.asteroids:
             self._finish_rain_drain()
 
         if not self.player.alive:
             self._game_over()
 
-    def _upd_normal(self, keys):
-        """Update durante il gioco normale (nemici, boss check, pioggia check)."""
+    def _upd_normal(self, keys) -> None:
+        """Update durante il gioco normale (nemici, boss, pioggia)."""
         self.player.update(keys)
         self._shoot(keys)
 
@@ -521,9 +548,9 @@ class Game:
         if not self.player.alive:
             self._game_over()
 
-    # ---- Utilita' di update ----
+    # -- Utilita' di update --
 
-    def _shoot(self, keys):
+    def _shoot(self, keys) -> None:
         """Gestisce lo sparo del giocatore (tasto SPAZIO)."""
         if keys[pygame.K_SPACE]:
             lasers = self.player.shoot(pygame.time.get_ticks())
@@ -531,34 +558,34 @@ class Game:
                 self.player_lasers.extend(lasers)
                 self.sounds["laser"].play()
 
-    def _upd_all_entities(self):
-        """Aggiorna tutte le entita' attive (laser, esplosioni, carrier, ecc.)."""
-        for l in self.player_lasers:
-            l.update()
-        for l in self.enemy_lasers:
-            l.update()
-        for e in self.explosions:
-            e.update()
-        for c in self.carriers:
-            c.update()
-        for p in self.falling_powerups:
-            p.update()
-        for a in self.asteroids:
-            a.update()
+    def _upd_all_entities(self) -> None:
+        """Aggiorna tutte le entita' attive."""
+        for laser in self.player_lasers:
+            laser.update()
+        for laser in self.enemy_lasers:
+            laser.update()
+        for expl in self.explosions:
+            expl.update()
+        for carrier in self.carriers:
+            carrier.update()
+        for pu in self.falling_powerups:
+            pu.update()
+        for ast in self.asteroids:
+            ast.update()
 
-    def _upd_explosions(self):
+    def _upd_explosions(self) -> None:
         """Aggiorna e rimuove le esplosioni terminate."""
-        for e in self.explosions:
-            e.update()
+        for expl in self.explosions:
+            expl.update()
         self.explosions = [e for e in self.explosions if e.active]
 
-    def _upd_asteroids(self):
+    def _upd_asteroids(self) -> None:
         """Aggiorna e rimuove asteroidi inattivi."""
-        for a in self.asteroids:
-            a.update()
+        for ast in self.asteroids:
+            ast.update()
         self.asteroids = [a for a in self.asteroids if a.active]
 
-    def _cleanup(self):
+    def _cleanup(self) -> None:
         """Rimuove tutte le entita' inattive dalle rispettive liste."""
         self.player_lasers    = [l for l in self.player_lasers    if l.active]
         self.enemy_lasers     = [l for l in self.enemy_lasers     if l.active]
@@ -572,7 +599,7 @@ class Game:
     # COLLISIONI
     # ======================================================================
 
-    def _check_all(self):
+    def _check_all(self) -> None:
         """Esegue tutti i controlli di collisione per il frame corrente."""
         pr = self.player.get_rect()
         self._chk_pl_vs_boss()
@@ -584,82 +611,88 @@ class Game:
         self._chk_asteroid_player(pr)
         self._chk_pu_player(pr)
 
-    def _chk_pl_vs_boss(self):
-        """Collisione: laser del giocatore -> boss."""
+    def _chk_pl_vs_boss(self) -> None:
+        """Collisione: laser del giocatore -> boss.
+
+        Fix v6: il ciclo ora usa ``continue`` correttamente quando il boss
+        viene sconfitto a meta' iterazione.
+        """
         if not (self.boss_active and self.boss and self.boss.alive):
             return
-        for l in self.player_lasers:
-            if not l.active or not self.boss:
+        for laser in self.player_lasers:
+            if not laser.active:
+                continue
+            # Il boss potrebbe essere stato sconfitto dal laser precedente
+            if self.boss is None or not self.boss.alive:
                 break
-            if l.get_rect().colliderect(self.boss.get_rect()):
-                l.active = False
+            if laser.get_rect().colliderect(self.boss.get_rect()):
+                laser.active = False
                 self.sounds["boss_hit"].play()
-                self.explosions.append(Explosion(l.x + 2, l.y))
+                self.explosions.append(Explosion(laser.x + 2, laser.y))
                 if self.boss.take_damage(1):
                     self._on_boss_defeated()
                     break
 
-    def _chk_pl_vs_carrier(self):
+    def _chk_pl_vs_carrier(self) -> None:
         """Collisione: laser del giocatore -> carrier power-up."""
-        for l in self.player_lasers:
-            if not l.active:
+        for laser in self.player_lasers:
+            if not laser.active:
                 continue
-            for c in self.carriers:
-                if not c.alive:
+            for carrier in self.carriers:
+                if not carrier.alive:
                     continue
-                if l.get_rect().colliderect(c.get_rect()):
-                    l.active = False
-                    if c.take_damage(1):
+                if laser.get_rect().colliderect(carrier.get_rect()):
+                    laser.active = False
+                    if carrier.take_damage(1):
                         self.explosions.append(Explosion(
-                            c.x + c.width // 2,
-                            c.y + c.height // 2))
+                            carrier.x + carrier.width // 2,
+                            carrier.y + carrier.height // 2))
                         self.sounds["carrier_destroyed"].play()
                         self.falling_powerups.append(FallingPowerUp(
-                            c.x + c.width // 2 - POWERUP_ITEM_SIZE // 2,
-                            c.y + c.height // 2 - POWERUP_ITEM_SIZE // 2,
-                            c.powerup_type))
+                            carrier.x + carrier.width // 2 - POWERUP_ITEM_SIZE // 2,
+                            carrier.y + carrier.height // 2 - POWERUP_ITEM_SIZE // 2,
+                            carrier.powerup_type))
                     else:
                         self.sounds["carrier_hit"].play()
                     break
 
-    def _chk_pl_vs_formations(self):
+    def _chk_pl_vs_formations(self) -> None:
         """Collisione: laser del giocatore -> nemici nelle formazioni."""
-        for l in self.player_lasers:
-            if not l.active:
+        for laser in self.player_lasers:
+            if not laser.active:
                 continue
             hit = False
-            for g in self.formation_groups:
-                for rect, enemy in g.get_alive_rects():
-                    if l.get_rect().colliderect(rect):
-                        l.active = False
+            for group in self.formation_groups:
+                for rect, enemy in group.get_alive_rects():
+                    if laser.get_rect().colliderect(rect):
+                        laser.active = False
                         dead = enemy.take_damage(1)
                         if dead:
-                            self.score += g.score_per_kill
+                            self.score += group.score_per_kill
                             self.explosions.append(Explosion(
                                 enemy.x + enemy.width // 2,
                                 enemy.y + enemy.height // 2))
                             self.sounds["explosion"].play()
                         else:
-                            # Nemico colpito ma non morto (bomber/elite multi-HP)
+                            # Nemico colpito ma non morto (multi-HP)
                             self.sounds["boss_hit"].play()
                         hit = True
                         break
                 if hit:
                     break
 
-    def _chk_el_vs_player(self, pr):
+    def _chk_el_vs_player(self, pr: pygame.Rect) -> None:
         """Collisione: laser nemici -> giocatore.
 
         Se lo scudo e' attivo il laser viene distrutto ma lo scudo
         resta intatto (immunita' completa per tutta la durata).
         """
-        for l in self.enemy_lasers:
-            if not l.active:
+        for laser in self.enemy_lasers:
+            if not laser.active:
                 continue
-            if l.get_rect().colliderect(pr):
-                l.active = False
+            if laser.get_rect().colliderect(pr):
+                laser.active = False
                 if self.player.shield_active:
-                    # Scudo attivo: il giocatore e' immune, lo scudo NON si rompe
                     self.sounds["shield_active"].play()
                 elif not self.player.invincible:
                     dead = self.player.take_damage()
@@ -668,38 +701,36 @@ class Game:
                     else:
                         self.sounds["player_hit"].play()
 
-    def _chk_boss_vs_player(self, pr):
+    def _chk_boss_vs_player(self, pr: pygame.Rect) -> None:
         """Collisione: corpo del boss -> giocatore.
 
-        Se lo scudo e' attivo il contatto viene ignorato (immunita'
-        completa). Altrimenti e' morte istantanea.
+        Se lo scudo e' attivo il contatto viene ignorato.
+        Altrimenti e' morte istantanea.
         """
         if not (self.boss_active and self.boss and self.boss.alive):
             return
         if self.boss.get_rect().colliderect(pr):
             if self.player.shield_active:
-                # Scudo attivo: il giocatore e' immune, lo scudo NON si rompe
-                pass
+                pass  # scudo: immune
             elif not self.player.invincible:
                 self.player.lives = 0
                 self.player.alive = False
                 self._player_death_expl()
 
-    def _chk_formation_vs_player(self, pr):
+    def _chk_formation_vs_player(self, pr: pygame.Rect) -> None:
         """Collisione: corpo nemico -> giocatore.
 
         Se lo scudo e' attivo il nemico viene distrutto ma il giocatore
-        e lo scudo restano intatti (immunita' completa).
+        e lo scudo restano intatti.
         """
-        for g in self.formation_groups:
-            for rect, enemy in g.get_alive_rects():
+        for group in self.formation_groups:
+            for rect, enemy in group.get_alive_rects():
                 if rect.colliderect(pr):
                     enemy.alive = False
                     self.explosions.append(Explosion(
                         enemy.x + enemy.width // 2,
                         enemy.y + enemy.height // 2))
                     if self.player.shield_active:
-                        # Scudo attivo: il giocatore e' immune, lo scudo NON si rompe
                         self.sounds["shield_active"].play()
                     elif not self.player.invincible:
                         dead = self.player.take_damage()
@@ -708,20 +739,19 @@ class Game:
                         else:
                             self.sounds["player_hit"].play()
 
-    def _chk_asteroid_player(self, pr):
+    def _chk_asteroid_player(self, pr: pygame.Rect) -> None:
         """Collisione: asteroide -> giocatore.
 
         L'asteroide distrugge la navicella SEMPRE, anche se lo scudo
-        e' attivo o il giocatore e' invincibile. Game over immediato.
+        e' attivo o il giocatore e' invincibile.  Game over immediato.
         """
-        for a in self.asteroids:
-            if not a.active:
+        for ast in self.asteroids:
+            if not ast.active:
                 continue
-            if a.get_rect().colliderect(pr):
-                # L'asteroide ignora scudo e invincibilita': morte istantanea
+            if ast.get_rect().colliderect(pr):
                 self.player.shield_active = False
-                self.player.shield_timer = 0
-                self.player.invincible = False
+                self.player.shield_timer  = 0
+                self.player.invincible    = False
                 self.player.lives = 0
                 self.player.alive = False
                 self.explosions.append(Explosion(
@@ -729,21 +759,21 @@ class Game:
                     self.player.y + self.player.height // 2,
                     size=128))
                 self.sounds["game_over"].play()
-                return  # Game over immediato
+                return
 
-    def _chk_pu_player(self, pr):
+    def _chk_pu_player(self, pr: pygame.Rect) -> None:
         """Collisione: power-up cadente -> giocatore (raccolta)."""
-        for p in self.falling_powerups:
-            if not p.active:
+        for pu in self.falling_powerups:
+            if not pu.active:
                 continue
-            if p.get_rect().colliderect(pr):
-                p.active = False
-                self.player.apply_powerup(p.powerup_type)
+            if pu.get_rect().colliderect(pr):
+                pu.active = False
+                self.player.apply_powerup(pu.powerup_type)
                 self.sounds["powerup_collect"].play()
-                if p.powerup_type == "scudo":
+                if pu.powerup_type == "scudo":
                     self.sounds["shield_active"].play()
 
-    def _player_death_expl(self):
+    def _player_death_expl(self) -> None:
         """Crea l'esplosione e suona il game over alla morte del giocatore."""
         self.explosions.append(Explosion(
             self.player.x + self.player.width // 2,
@@ -754,7 +784,7 @@ class Game:
     # GAME OVER
     # ======================================================================
 
-    def _game_over(self):
+    def _game_over(self) -> None:
         """Gestisce la fine della partita: salva punteggio e cambia stato."""
         self._stop_music()
 
@@ -772,11 +802,11 @@ class Game:
         self.state = "game_over"
 
     # ======================================================================
-    # PAUSA (ESC o P)
+    # PAUSA
     # ======================================================================
 
-    def _toggle_pause(self):
-        """Attiva/disattiva la pausa. Resetta la selezione del menu di pausa."""
+    def _toggle_pause(self) -> None:
+        """Attiva/disattiva la pausa.  Resetta la selezione del menu."""
         self._paused = not self._paused
         self._pause_selection = 0
         if self._paused:
@@ -788,7 +818,7 @@ class Game:
             if self._music_channel:
                 self._music_channel.unpause()
 
-    def _resume_from_pause(self):
+    def _resume_from_pause(self) -> None:
         """Riprende il gioco dalla pausa."""
         self._paused = False
         self._pause_selection = 0
@@ -796,7 +826,7 @@ class Game:
         if self._music_channel:
             self._music_channel.unpause()
 
-    def _quit_to_menu_from_pause(self):
+    def _quit_to_menu_from_pause(self) -> None:
         """Esce al menu principale dalla pausa."""
         self._paused = False
         self._pause_selection = 0
@@ -805,12 +835,12 @@ class Game:
         self.sounds["select"].play()
 
     # ======================================================================
-    #  DRAW
+    # DRAW
     # ======================================================================
 
-    # ---- MENU PRINCIPALE ----
+    # -- MENU PRINCIPALE --
 
-    def draw_menu(self):
+    def draw_menu(self) -> None:
         """Disegna la schermata del menu principale."""
         self.screen.fill(DARK_GRAY)
         self.stars.draw(self.screen)
@@ -825,17 +855,18 @@ class Game:
             Assets.player_ships[self.selected_ship], (60, 60))
         self.screen.blit(scaled, (SCREEN_WIDTH // 2 - 30, 190))
 
-        # Voci di menu
         items = ["GIOCA", "NAVICELLE", "CREDITI", "ESCI"]
         for i, item in enumerate(items):
             col = YELLOW if i == self.menu_selection else WHITE
             pre = "> " if i == self.menu_selection else "  "
-            t = self.font_medium.render(f"{pre}{item}", True, col)
-            self.screen.blit(t, (SCREEN_WIDTH // 2 - t.get_width() // 2, 290 + i * 48))
+            txt = self.font_medium.render(f"{pre}{item}", True, col)
+            self.screen.blit(
+                txt, (SCREEN_WIDTH // 2 - txt.get_width() // 2, 290 + i * 48))
 
         hint = self.font_tiny.render(
             "W/S naviga  |  INVIO/SPAZIO conferma", True, (100, 100, 130))
-        self.screen.blit(hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, 500))
+        self.screen.blit(
+            hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, 500))
 
         hs = self.font_small.render(
             f"Record: {self.save['high_score']} punti", True, YELLOW)
@@ -846,7 +877,7 @@ class Game:
             True, (90, 90, 110))
         self.screen.blit(cr, (SCREEN_WIDTH // 2 - cr.get_width() // 2, 565))
 
-    def handle_menu_input(self, event):
+    def handle_menu_input(self, event: pygame.event.Event) -> None:
         """Gestisce l'input da tastiera nel menu principale."""
         if event.type != pygame.KEYDOWN:
             return
@@ -872,15 +903,15 @@ class Game:
                 pygame.quit()
                 sys.exit()
 
-    # ---- CREDITI ----
+    # -- CREDITI --
 
-    def draw_credits(self):
+    def draw_credits(self) -> None:
         """Disegna la schermata dei crediti con scrolling verticale."""
         self.screen.fill(BLACK)
         self.stars.draw(self.screen)
-        ov = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        ov.fill((0, 0, 0, 120))
-        self.screen.blit(ov, (0, 0))
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 120))
+        self.screen.blit(overlay, (0, 0))
 
         lines = [
             ("SPACE SHOOTER", self.font_large, CYAN),
@@ -904,30 +935,34 @@ class Game:
         for text, font, color in lines:
             s = font.render(text, True, color)
             if -50 < y < SCREEN_HEIGHT + 10:
-                self.screen.blit(s, (SCREEN_WIDTH // 2 - s.get_width() // 2, int(y)))
+                self.screen.blit(
+                    s, (SCREEN_WIDTH // 2 - s.get_width() // 2, int(y)))
             y += font.size(text)[1] + 6
         self._credits_scroll -= 1.0
         if y < 0:
             self._credits_scroll = float(SCREEN_HEIGHT)
 
-    def handle_credits_input(self, event):
-        """Gestisce l'input nella schermata crediti (qualsiasi tasto torna al menu)."""
+    def handle_credits_input(self, event: pygame.event.Event) -> None:
+        """Gestisce l'input nella schermata crediti."""
         if event.type == pygame.KEYDOWN:
             self.state = "menu"
             self.sounds["select"].play()
 
-    # ---- SELEZIONE NAVE ----
+    # -- SELEZIONE NAVE --
 
-    def draw_ship_select(self):
+    def draw_ship_select(self) -> None:
         """Disegna la schermata di selezione navicella."""
         self.screen.fill(DARK_GRAY)
         self.stars.draw(self.screen)
         title = self.font_large.render("NAVICELLE", True, CYAN)
-        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 30))
+        self.screen.blit(
+            title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 30))
 
-        names = ["Falcon", "Viper", "Phoenix"]
-        descs = ["Classica -- affidabile", "Doppia ala -- agile", "Doppio cannone -- VIP"]
-        colors = [CYAN, GREEN, MAGENTA]
+        names   = ["Falcon", "Viper", "Phoenix"]
+        descs   = ["Classica -- affidabile",
+                    "Doppia ala -- agile",
+                    "Doppio cannone -- VIP"]
+        colors  = [CYAN, GREEN, MAGENTA]
         unlocks = [0, 0, 50]
         for i in range(3):
             self._ship_card(i, names[i], descs[i], colors[i], unlocks[i])
@@ -935,19 +970,19 @@ class Game:
         instr = self.font_small.render(
             "< A/D scegli | INVIO conferma | ESC indietro >",
             True, (150, 150, 170))
-        self.screen.blit(instr, (SCREEN_WIDTH // 2 - instr.get_width() // 2, 530))
+        self.screen.blit(
+            instr, (SCREEN_WIDTH // 2 - instr.get_width() // 2, 530))
 
-    def _ship_card(self, index, name, desc, color, unlock_score):
+    def _ship_card(self, index: int, name: str, desc: str,
+                   color: tuple, unlock_score: int) -> None:
         """Disegna la card di una singola navicella nella selezione."""
         bx = 50 + index * 245
-        by = 120
-        bw = 225
-        bh = 380
-        is_sel = (index == self.selected_ship)
+        by, bw, bh = 120, 225, 380
+        is_sel      = (index == self.selected_ship)
         is_unlocked = self.save["unlocked_ships"][index]
 
         border = YELLOW if is_sel else (80, 80, 100)
-        bg = (30, 30, 50) if is_unlocked else (20, 15, 15)
+        bg     = (30, 30, 50) if is_unlocked else (20, 15, 15)
         pygame.draw.rect(self.screen, bg, (bx, by, bw, bh))
         pygame.draw.rect(self.screen, border, (bx, by, bw, bh), 2)
 
@@ -971,9 +1006,10 @@ class Game:
 
         if is_sel and is_unlocked:
             sel = self.font_small.render("SELEZIONATA", True, YELLOW)
-            self.screen.blit(sel, (bx + bw // 2 - sel.get_width() // 2, by + 350))
+            self.screen.blit(
+                sel, (bx + bw // 2 - sel.get_width() // 2, by + 350))
 
-    def handle_ship_select_input(self, event):
+    def handle_ship_select_input(self, event: pygame.event.Event) -> None:
         """Gestisce l'input nella schermata selezione nave."""
         if event.type != pygame.KEYDOWN:
             return
@@ -993,103 +1029,107 @@ class Game:
             self.state = "menu"
             self.sounds["select"].play()
 
-    # ---- PAUSA OVERLAY ----
+    # -- PAUSA OVERLAY --
 
-    def draw_pause_overlay(self):
-        """Disegna l'overlay della pausa con menu selezionabile.
-
-        Due voci: RIPRENDI e TORNA AL MENU, navigate con W/S o frecce,
-        confermate con INVIO/SPAZIO.
-        """
-        ov = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        ov.fill((0, 0, 0, 180))
-        self.screen.blit(ov, (0, 0))
+    def draw_pause_overlay(self) -> None:
+        """Disegna l'overlay della pausa con menu selezionabile."""
+        overlay = pygame.Surface(
+            (SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 180))
+        self.screen.blit(overlay, (0, 0))
 
         title = self.font_large.render("PAUSA", True, CYAN)
-        self.screen.blit(title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 170))
+        self.screen.blit(
+            title, (SCREEN_WIDTH // 2 - title.get_width() // 2, 170))
 
-        # Voci del menu di pausa
         pause_items = ["RIPRENDI", "TORNA AL MENU"]
         for i, txt in enumerate(pause_items):
             is_sel = (i == self._pause_selection)
             col = YELLOW if is_sel else WHITE
             pre = "> " if is_sel else "  "
             s = self.font_medium.render(f"{pre}{txt}", True, col)
-            self.screen.blit(s, (SCREEN_WIDTH // 2 - s.get_width() // 2, 270 + i * 50))
+            self.screen.blit(
+                s, (SCREEN_WIDTH // 2 - s.get_width() // 2, 270 + i * 50))
 
-        # Statistiche di gioco
         secs = self.game_time // 60
         stat = self.font_small.render(
-            f"Punti: {self.score}   |   Tempo: {secs}s   |   Lv.{self._diff_level + 1}",
+            f"Punti: {self.score}   |   Tempo: {secs}s   |   "
+            f"Lv.{self._diff_level + 1}",
             True, YELLOW)
-        self.screen.blit(stat, (SCREEN_WIDTH // 2 - stat.get_width() // 2, 410))
+        self.screen.blit(
+            stat, (SCREEN_WIDTH // 2 - stat.get_width() // 2, 410))
 
-        # Hint controlli
         hint = self.font_tiny.render(
             "W/S naviga  |  INVIO conferma  |  ESC/P riprendi",
             True, (100, 100, 130))
-        self.screen.blit(hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, 460))
+        self.screen.blit(
+            hint, (SCREEN_WIDTH // 2 - hint.get_width() // 2, 460))
 
-    # ---- WARNING OVERLAY ----
+    # -- WARNING OVERLAY --
 
-    def _warn_overlay(self, timer, dur, subtitle, color, extra=None):
+    def _warn_overlay(self, timer: int, dur: int, subtitle: str,
+                      color: tuple, extra: str | None = None) -> None:
         """Disegna l'overlay di avviso lampeggiante (boss o pioggia)."""
         flash = int(abs(math.sin(timer * 0.1)) * 80)
-        ov = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay = pygame.Surface(
+            (SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         if color == RED:
             c = (flash, 0, 0, 100)
         else:
             c = (flash, int(flash * 0.6), 0, 120)
-        ov.fill(c)
-        self.screen.blit(ov, (0, 0))
+        overlay.fill(c)
+        self.screen.blit(overlay, (0, 0))
 
         blink = 12 if color == RED else 10
         if (timer // blink) % 2 == 0:
             wt = self.font_large.render("!! WARNING !!", True, color)
-            self.screen.blit(wt, (SCREEN_WIDTH // 2 - wt.get_width() // 2,
-                                  SCREEN_HEIGHT // 2 - 60))
+            self.screen.blit(
+                wt, (SCREEN_WIDTH // 2 - wt.get_width() // 2,
+                     SCREEN_HEIGHT // 2 - 60))
 
         sub = self.font_medium.render(subtitle, True, color)
-        self.screen.blit(sub, (SCREEN_WIDTH // 2 - sub.get_width() // 2,
-                               SCREEN_HEIGHT // 2 + 10))
+        self.screen.blit(
+            sub, (SCREEN_WIDTH // 2 - sub.get_width() // 2,
+                  SCREEN_HEIGHT // 2 + 10))
         if extra:
             ex = self.font_small.render(extra, True, WHITE)
-            self.screen.blit(ex, (SCREEN_WIDTH // 2 - ex.get_width() // 2,
-                                  SCREEN_HEIGHT // 2 + 50))
+            self.screen.blit(
+                ex, (SCREEN_WIDTH // 2 - ex.get_width() // 2,
+                     SCREEN_HEIGHT // 2 + 50))
 
         # Barra di progresso warning
         prog = timer / dur
         bw, bh = 300, 8
-        bx = SCREEN_WIDTH // 2 - bw // 2
+        bx  = SCREEN_WIDTH // 2 - bw // 2
         by2 = SCREEN_HEIGHT // 2 + (85 if extra else 60)
         pygame.draw.rect(self.screen, (60, 60, 60), (bx, by2, bw, bh))
         pygame.draw.rect(self.screen, color, (bx, by2, int(bw * prog), bh))
 
-    # ---- DRAW GIOCO ----
+    # -- DRAW GIOCO --
 
-    def draw_game(self):
+    def draw_game(self) -> None:
         """Disegna il frame di gioco completo."""
         self.screen.fill(BLACK)
         self.stars.draw(self.screen)
 
         # Entita'
-        for l in self.player_lasers:
-            l.draw(self.screen)
-        for l in self.enemy_lasers:
-            l.draw(self.screen)
+        for laser in self.player_lasers:
+            laser.draw(self.screen)
+        for laser in self.enemy_lasers:
+            laser.draw(self.screen)
         if self.boss_active and self.boss:
             self.boss.draw(self.screen)
-        for g in self.formation_groups:
-            g.draw(self.screen)
-        for c in self.carriers:
-            c.draw(self.screen)
-        for p in self.falling_powerups:
-            p.draw(self.screen)
-        for a in self.asteroids:
-            a.draw(self.screen)
+        for group in self.formation_groups:
+            group.draw(self.screen)
+        for carrier in self.carriers:
+            carrier.draw(self.screen)
+        for pu in self.falling_powerups:
+            pu.draw(self.screen)
+        for ast in self.asteroids:
+            ast.draw(self.screen)
         self.player.draw(self.screen)
-        for e in self.explosions:
-            e.draw(self.screen)
+        for expl in self.explosions:
+            expl.draw(self.screen)
 
         # Overlay warning
         if self.boss_warning:
@@ -1112,9 +1152,10 @@ class Game:
         if self._paused:
             self.draw_pause_overlay()
 
-    def _draw_hud(self):
+    def _draw_hud(self) -> None:
         """Disegna l'HUD in-game (punteggio, vite, tempo, livello, power-up)."""
-        hud_y = 38 if (self.boss_active and self.boss and self.boss.alive) else 10
+        hud_y = 38 if (self.boss_active and self.boss
+                       and self.boss.alive) else 10
 
         # Sfondo punteggio
         bg = pygame.Surface((200, 40), pygame.SRCALPHA)
@@ -1127,7 +1168,8 @@ class Game:
 
         # Tempo
         secs = self.game_time // 60
-        tt = self.font_small.render(f"Tempo: {secs}s", True, (180, 180, 200))
+        tt = self.font_small.render(
+            f"Tempo: {secs}s", True, (180, 180, 200))
         self.screen.blit(tt, (SCREEN_WIDTH - 150, hud_y + 8))
 
         # Livello
@@ -1138,9 +1180,11 @@ class Game:
         # Indicatore fase speciale
         if self.rain_active or self.rain_draining:
             col = ORANGE if (self.game_time // 20) % 2 == 0 else YELLOW
-            label = "PIOGGIA DI ASTEROIDI" if self.rain_active else "ASTEROIDI IN VOLO..."
+            label = ("PIOGGIA DI ASTEROIDI" if self.rain_active
+                     else "ASTEROIDI IN VOLO...")
             ri = self.font_tiny.render(f"* {label}", True, col)
-            self.screen.blit(ri, (SCREEN_WIDTH // 2 - ri.get_width() // 2, hud_y + 35))
+            self.screen.blit(
+                ri, (SCREEN_WIDTH // 2 - ri.get_width() // 2, hud_y + 35))
         elif self.boss_active:
             bi = self.font_tiny.render(
                 f"BOSS FIGHT!  (sconfitti: {self.boss_defeated_count})",
@@ -1155,21 +1199,27 @@ class Game:
 
         # Cooldown sparo
         ticks = pygame.time.get_ticks()
-        cd = max(0, self.player.shot_cooldown - (ticks - self.player.last_shot_time))
+        cd = max(
+            0,
+            self.player.shot_cooldown - (ticks - self.player.last_shot_time))
         if cd > 0:
             pct = cd / self.player.shot_cooldown
-            pygame.draw.rect(self.screen, (60, 60, 60), (20, hud_y + 45, 60, 6))
-            pygame.draw.rect(self.screen, CYAN, (20, hud_y + 45, int(60 * (1 - pct)), 6))
+            pygame.draw.rect(
+                self.screen, (60, 60, 60), (20, hud_y + 45, 60, 6))
+            pygame.draw.rect(
+                self.screen, CYAN, (20, hud_y + 45, int(60 * (1 - pct)), 6))
 
         # Hint pausa
         ph = self.font_tiny.render("ESC/P = Pausa", True, (70, 70, 95))
-        self.screen.blit(ph, (SCREEN_WIDTH // 2 - ph.get_width() // 2, SCREEN_HEIGHT - 18))
+        self.screen.blit(
+            ph, (SCREEN_WIDTH // 2 - ph.get_width() // 2,
+                 SCREEN_HEIGHT - 18))
 
         self._draw_pu_hud(hud_y)
 
-    def _draw_pu_hud(self, hud_y):
+    def _draw_pu_hud(self, hud_y: int) -> None:
         """Disegna le barre dei power-up attivi nell'HUD."""
-        active = []
+        active: list[tuple[str, tuple, float, float]] = []
         if self.player.shield_active:
             active.append((
                 "SCUDO", CYAN,
@@ -1189,17 +1239,19 @@ class Game:
             return
 
         py = hud_y + 58
-        for name, col, sl, pct in active:
+        for name, col, secs_left, pct in active:
             bg = pygame.Surface((130, 18), pygame.SRCALPHA)
             bg.fill((0, 0, 0, 150))
             self.screen.blit(bg, (10, py))
-            lbl = self.font_tiny.render(f"{name} {sl:.1f}s", True, col)
+            lbl = self.font_tiny.render(f"{name} {secs_left:.1f}s", True, col)
             self.screen.blit(lbl, (14, py + 1))
-            pygame.draw.rect(self.screen, (40, 40, 40), (10, py + 16, 130, 3))
-            pygame.draw.rect(self.screen, col, (10, py + 16, int(130 * pct), 3))
+            pygame.draw.rect(
+                self.screen, (40, 40, 40), (10, py + 16, 130, 3))
+            pygame.draw.rect(
+                self.screen, col, (10, py + 16, int(130 * pct), 3))
             py += 22
 
-    def _draw_lives(self, hud_y):
+    def _draw_lives(self, hud_y: int) -> None:
         """Disegna i cuori delle vite del giocatore."""
         sz, sp = 18, 24
         sx, sy = 225, hud_y + 12
@@ -1208,27 +1260,27 @@ class Game:
             self._heart(self.screen, sx + i * sp, sy, sz, col)
 
     @staticmethod
-    def _heart(surf, x, y, sz, col):
+    def _heart(surf: pygame.Surface, x: int, y: int, sz: int,
+               col: tuple) -> None:
         """Disegna un cuoricino alla posizione data."""
         r = sz // 4
         pygame.draw.circle(surf, col, (x + r, y + r), r)
         pygame.draw.circle(surf, col, (x + sz // 2 + r, y + r), r)
-        pygame.draw.polygon(surf, col, [(x, y + r), (x + sz, y + r), (x + sz // 2, y + sz)])
+        pygame.draw.polygon(
+            surf, col, [(x, y + r), (x + sz, y + r), (x + sz // 2, y + sz)])
 
-    # ---- INPUT IN-GAME ----
+    # -- INPUT IN-GAME --
 
-    def handle_game_input(self, event):
+    def handle_game_input(self, event: pygame.event.Event) -> None:
         """Gestisce l'input durante il gioco.
 
-        ESC e P entrambi attivano la pausa.
-        Quando in pausa, W/S navigano il menu di pausa,
-        INVIO/SPAZIO confermano, ESC/P riprendono direttamente.
+        ESC e P attivano la pausa.  Quando in pausa, W/S navigano il
+        menu di pausa, INVIO/SPAZIO confermano, ESC/P riprendono.
         """
         if event.type != pygame.KEYDOWN:
             return
 
         if self._paused:
-            # ---- Input dentro il menu di pausa ----
             if event.key in (pygame.K_UP, pygame.K_w):
                 self._pause_selection = (self._pause_selection - 1) % 2
                 self.sounds["select"].play()
@@ -1242,31 +1294,31 @@ class Game:
                 elif self._pause_selection == 1:
                     self._quit_to_menu_from_pause()
             elif event.key in (pygame.K_ESCAPE, pygame.K_p):
-                # ESC/P dalla pausa = riprendi direttamente
                 self._resume_from_pause()
         else:
-            # ---- Input durante il gioco attivo ----
             if event.key in (pygame.K_ESCAPE, pygame.K_p):
                 self._toggle_pause()
 
-    # ---- GAME OVER ----
+    # -- GAME OVER --
 
-    def draw_game_over(self):
+    def draw_game_over(self) -> None:
         """Disegna la schermata di game over con punteggio e statistiche."""
         self.screen.fill(BLACK)
         self.stars.draw(self.screen)
-        ov = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        ov.fill((0, 0, 0, 150))
-        self.screen.blit(ov, (0, 0))
+        overlay = pygame.Surface(
+            (SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        self.screen.blit(overlay, (0, 0))
 
         go = self.font_large.render("GAME OVER", True, RED)
         self.screen.blit(go, (SCREEN_WIDTH // 2 - go.get_width() // 2, 110))
 
-        sc = self.font_medium.render(f"Punteggio: {self.score}", True, WHITE)
+        sc = self.font_medium.render(
+            f"Punteggio: {self.score}", True, WHITE)
         self.screen.blit(sc, (SCREEN_WIDTH // 2 - sc.get_width() // 2, 200))
 
         is_new = (self.score >= self.save["high_score"] and self.score > 0)
-        rp = "NUOVO RECORD!  " if is_new else "Record: "
+        rp  = "NUOVO RECORD!  " if is_new else "Record: "
         rec = self.font_medium.render(
             f"{rp}{self.save['high_score']}",
             True, YELLOW if is_new else (180, 180, 200))
@@ -1279,8 +1331,10 @@ class Game:
         self.screen.blit(tt, (SCREEN_WIDTH // 2 - tt.get_width() // 2, 295))
 
         if self.score >= 50 and self.save["unlocked_ships"][2]:
-            ul = self.font_medium.render("NAVE PHOENIX SBLOCCATA!", True, MAGENTA)
-            self.screen.blit(ul, (SCREEN_WIDTH // 2 - ul.get_width() // 2, 335))
+            ul = self.font_medium.render(
+                "NAVE PHOENIX SBLOCCATA!", True, MAGENTA)
+            self.screen.blit(
+                ul, (SCREEN_WIDTH // 2 - ul.get_width() // 2, 335))
 
         r1 = self.font_small.render("INVIO/SPAZIO -- Rigioca", True, GREEN)
         r2 = self.font_small.render("ESC -- Menu", True, (150, 150, 170))
@@ -1289,12 +1343,16 @@ class Game:
 
         if self.save["best_scores"]:
             top = self.font_small.render("Top Punteggi:", True, YELLOW)
-            self.screen.blit(top, (SCREEN_WIDTH // 2 - top.get_width() // 2, 465))
+            self.screen.blit(
+                top, (SCREEN_WIDTH // 2 - top.get_width() // 2, 465))
             for i, s in enumerate(self.save["best_scores"][:3]):
-                st = self.font_tiny.render(f"{i + 1}. {s} pt", True, (180, 180, 200))
-                self.screen.blit(st, (SCREEN_WIDTH // 2 - st.get_width() // 2, 490 + i * 20))
+                st = self.font_tiny.render(
+                    f"{i + 1}. {s} pt", True, (180, 180, 200))
+                self.screen.blit(
+                    st, (SCREEN_WIDTH // 2 - st.get_width() // 2,
+                         490 + i * 20))
 
-    def handle_game_over_input(self, event):
+    def handle_game_over_input(self, event: pygame.event.Event) -> None:
         """Gestisce l'input nella schermata game over."""
         if event.type != pygame.KEYDOWN:
             return
@@ -1311,8 +1369,8 @@ class Game:
     # GAME LOOP
     # ======================================================================
 
-    def run(self):
-        """Loop principale del gioco - processa eventi, aggiorna e disegna."""
+    def run(self) -> None:
+        """Loop principale del gioco -- processa eventi, aggiorna e disegna."""
         while True:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
