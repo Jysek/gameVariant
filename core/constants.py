@@ -3,9 +3,6 @@ Costanti globali del gioco.
 
 Contiene tutte le costanti condivise tra i moduli: dimensioni schermo,
 colori, dimensioni sprite, tipi di power-up e parametri di difficolta'.
-
-Nota: le costanti sono organizzate per categoria per facilitare la
-manutenzione e la ricerca.
 """
 
 # ============================================================================
@@ -34,8 +31,10 @@ STAR_WHITE = (200, 200, 220)
 # ============================================================================
 # DIMENSIONI SPRITE (pixel)
 # ============================================================================
-ENEMY_W          = 60      # larghezza nemico base (UFO e' piu' largo che alto)
-ENEMY_H          = 60      # altezza nemico base
+PLAYER_W         = 60
+PLAYER_H         = 60
+ENEMY_W          = 60
+ENEMY_H          = 60
 ASTEROID_SIZE    = 60
 CARRIER_SIZE     = 55
 POWERUP_ITEM_SIZE = 35
@@ -45,11 +44,52 @@ EXPLOSION_SIZE   = 64
 ENEMY_SIZE = ENEMY_W
 
 # ============================================================================
+# NAVICELLE GIOCATORE
+# ============================================================================
+# 12 navi dal spritesheet navicelle.gif (3 righe x 4 colonne).
+# Ogni nave puo' essere sbloccata raggiungendo un certo punteggio.
+NUM_PLAYER_SHIPS = 10
+
+SHIP_NAMES = [
+    "Viper",      "Phoenix",    "Striker",   "Nova",
+    "Pulsar",     "Nebula",     "Comet",     "Eclipse",
+    "Tempest",    "Zenith",
+]
+
+SHIP_DESCRIPTIONS = [
+    "Doppia ala -- agile",
+    "Doppio cannone -- VIP",
+    "Pesante -- muro di fuoco",
+    "Bilanciata -- versatile",
+    "Leggera -- evasiva",
+    "Potente -- devastante",
+    "Rapida -- traccia luminosa",
+    "Furtiva -- ombra spaziale",
+    "Furiosa -- tempesta di laser",
+    "Suprema -- distruttrice finale",
+]
+
+# Colori associati ad ogni nave (usati per laser e HUD)
+SHIP_COLORS = [
+    GREEN, MAGENTA, ORANGE, BLUE, (200, 100, 255), RED,
+    (255, 200, 50), (100, 255, 200), (255, 100, 100), WHITE,
+]
+
+# Punteggi minimi per sbloccare ogni nave (0 = sbloccata di default)
+SHIP_UNLOCK_SCORES = [0, 150, 500, 750, 1000, 1500, 2000, 3000, 4500, 6000]
+
+# Tipi di sparo per nave (indice nella lista):
+#   0 = cannone singolo centrale
+#   1 = cannone singolo centrale (variante)
+#   2 = doppio cannone laterale (come Phoenix)
+# Le navi con indice % 3 == 2 usano il pattern doppio cannone.
+# Le altre usano il pattern singolo.
+
+# ============================================================================
 # TIPI DI POWER-UP
 # ============================================================================
 POWERUP_TYPES = ["vita", "scudo", "velocita", "arma"]
 
-# Colori associati ai power-up (usati nell'HUD e negli effetti visivi)
 POWERUP_COLORS = {
     "vita":     GREEN,
     "scudo":    CYAN,
@@ -58,10 +98,13 @@ POWERUP_COLORS = {
 }
 
 # ============================================================================
+# BOSS VARIANTI
+# ============================================================================
+NUM_BOSS_VARIANTS = 5  # boss.gif, boss_1.gif, boss_2.gif, boss_3.gif, boss_4.gif
+
+# ============================================================================
 # DIFFICOLTA' PROGRESSIVA
 # ============================================================================
-# Ogni DIFFICULTY_INTERVAL secondi di gioco la difficolta' aumenta di un livello.
-# La velocita' dei nemici viene moltiplicata per DIFFICULTY_SPEED_SCALE per livello.
-DIFFICULTY_INTERVAL    = 30        # secondi tra un livello e l'altro
-DIFFICULTY_SPEED_SCALE = 1.12      # +12% velocita' nemici per livello
-DIFFICULTY_MAX_LEVEL   = 8         # livello massimo (cap)
+DIFFICULTY_INTERVAL    = 30
+DIFFICULTY_SPEED_SCALE = 1.12
+DIFFICULTY_MAX_LEVEL   = 8

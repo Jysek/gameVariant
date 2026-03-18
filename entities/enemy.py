@@ -1,16 +1,15 @@
 """
-Enemy -- sprite, shake all'hit e pattern laser per tipo.
+Enemy -- sprite animato da GIF, shake + mini-esplosione all'hit, pattern laser.
 
-Tipi supportati e relativi pattern di sparo:
+I 4 tipi di nemico usano sprite animati estratti da ``enemy_ships.gif``:
 - scout:   laser singolo veloce, intervallo breve
 - fighter: laser doppio (offset laterale), intervallo intermedio
 - bomber:  laser lento ma largo, lungo intervallo
 - elite:   burst da 3 laser ravvicinati, intervallo medio
 
-Effetto hit:
-- Nemici con 1 HP: nessun feedback visivo (muoiono immediatamente).
-- Nemici con piu' HP: *shake* (oscillazione rapida dello sprite) invece
-  di un overlay bianco.  L'effetto e' identico a quello usato dal boss.
+Effetto hit (nemici con >1 HP):
+- Shake (oscillazione rapida dello sprite)
+- Mini-esplosione (``explosion.gif``) al punto d'impatto
 """
 
 import random
@@ -23,8 +22,8 @@ from entities.formations import Slot
 # ---------------------------------------------------------------------------
 # Parametri shake all'hit (frame-based)
 # ---------------------------------------------------------------------------
-_SHAKE_DURATION  = 8     # frame totali dell'effetto shake
-_SHAKE_AMPLITUDE = 3     # pixel massimi di oscillazione
+_SHAKE_DURATION  = 8
+_SHAKE_AMPLITUDE = 3
 
 # ---------------------------------------------------------------------------
 # Colore del laser per ciascun tipo di nemico
@@ -32,12 +31,12 @@ _SHAKE_AMPLITUDE = 3     # pixel massimi di oscillazione
 _LASER_COLOR = {
     "scout":   RED,
     "fighter": ORANGE,
-    "bomber":  (180, 0, 220),   # viola
+    "bomber":  (180, 0, 220),
     "elite":   CYAN,
     "default": RED,
 }
 
-# Velocita' del laser per ciascun tipo di nemico (pixel/frame)
+# Velocita' del laser per tipo (pixel/frame)
 _LASER_SPEED = {
     "scout":   6,
     "fighter": 5,
@@ -46,7 +45,7 @@ _LASER_SPEED = {
     "default": 5,
 }
 
-# Intervallo di sparo (min, max) in frame per ciascun tipo
+# Intervallo di sparo (min, max) in frame
 _SHOOT_INTERVAL = {
     "scout":   (70,  160),
     "fighter": (100, 200),
@@ -57,13 +56,11 @@ _SHOOT_INTERVAL = {
 
 
 class Enemy:
-    """Singolo nemico alieno con tipo, HP, sprite e pattern di sparo.
+    """Singolo nemico alieno con tipo, HP, sprite animato e pattern di sparo.
 
     Args:
-        x:          Posizione X iniziale (angolo superiore sinistro).
-        y:          Posizione Y iniziale.
-        enemy_type: Tipo di nemico (``'scout'``, ``'fighter'``,
-                    ``'bomber'``, ``'elite'``).
+        x, y:       Posizione iniziale.
+        enemy_type: Tipo di nemico.
         hp:         Punti vita iniziali.
     """
 
@@ -79,7 +76,6 @@ class Enemy:
         self.hp     = hp
         self.max_hp = hp
 
-        # Velocita' orizzontale aggiuntiva (gestita dal FormationGroup)
         self.h_speed = 0.0
 
         # Timer e intervallo sparo individuale
@@ -90,8 +86,13 @@ class Enemy:
         # Slot logico nella griglia della formazione
         self.slot: Slot = Slot(0, 0)
 
-        # -- Effetto shake all'hit (nessun overlay bianco) --
+        # Shake all'hit
         self._shake_timer = 0
+
+        # Animazione GIF
+        self._frame_idx   = 0
+        self._frame_timer = 0
+        self._frame_delay = 8  # tick di gioco per frame GIF
 
     # ------------------------------------------------------------------
     # DANNO
@@ -100,8 +101,8 @@ class Enemy:
     def take_damage(self, amount: int = 1) -> bool:
         """Applica danno al nemico e attiva shake + mini-esplosione.
 
-        Lo shake viene attivato **solo** se il nemico sopravvive (multi-HP).
-        Mini-esplosione su ogni hit se multi-HP.
+        Lo shake e la mini-esplosione vengono attivati **solo** se il
+        nemico sopravvive (multi-HP).
 
         Args:
             amount: Quantita' di danno da applicare.
@@ -110,38 +111,27 @@ class Enemy:
             ``True`` se il nemico e' stato ucciso, ``False`` altrimenti.
         """
         self.hp -= amount
-        
-        # Mini-esplosione se ha ancora HP (multi-HP)
-        if self.hp > 0 and self.max_hp > 1:
-            from entities.explosion import Explosion
-            Explosion(self.x + self.width // 2, self.y + self.height // 2, size=32)
-        
+
         if self.hp <= 0:
             self.hp = 0
             self.alive = False
             return True
+
         # Nemico sopravvive: attiva lo shake
         self._shake_timer = _SHAKE_DURATION
         return False
 
     # ------------------------------------------------------------------
-    # SPRITE
+    # SPRITE ANIMATO
     # ------------------------------------------------------------------
 
-    def _sprite(self) -> pygame.Surface:
-        """Restituisce lo sprite appropriato per il tipo di nemico.
-
-        Tutti i tipi usano ``alien.png`` come sprite base.  Il mapping
-        esiste per eventuali future differenziazioni grafiche.
-        """
-        sprite_map = {
-            "scout":   Assets.enemy_scout_sprite,
-            "fighter": Assets.enemy_fighter_sprite,
-            "bomber":  Assets.enemy_bomber_sprite,
-            "elite":   Assets.enemy_elite_sprite,
-        }
-        sprite = sprite_map.get(self.enemy_type)
-        return sprite if sprite is not None else Assets.alien_sprite
+    def _get_frames(self) -> list[pygame.Surface]:
+        """Restituisce la lista di frame per il tipo di nemico."""
+        frames = Assets.enemy_frames.get(self.enemy_type)
+        if frames:
+            return frames
+        # Fallback: scout
+        return Assets.enemy_frames.get("scout", [])
 
     # ------------------------------------------------------------------
     # LASER
@@ -151,35 +141,27 @@ class Enemy:
         """Costruisce i laser secondo il pattern del tipo di nemico.
 
         Returns:
-            Lista di oggetti ``Laser`` pronti per essere aggiunti al gioco.
+            Lista di oggetti ``Laser``.
         """
         from entities.laser import Laser
 
-        cx  = self.x + self.width // 2   # centro X del nemico
-        by  = self.y + self.height       # bordo inferiore
+        cx  = self.x + self.width // 2
+        by  = self.y + self.height
         spd = _LASER_SPEED.get(self.enemy_type, 5)
         col = _LASER_COLOR.get(self.enemy_type, RED)
         lasers: list[Laser] = []
 
         if self.enemy_type == "scout":
-            # Laser singolo centrale
             lasers.append(Laser(cx - 2, by, spd, col, is_enemy=True))
-
         elif self.enemy_type == "fighter":
-            # Due laser paralleli (offset +-10 px)
             lasers.append(Laser(cx - 10, by, spd, col, is_enemy=True))
             lasers.append(Laser(cx + 8,  by, spd, col, is_enemy=True))
-
         elif self.enemy_type == "bomber":
-            # Laser largo e lento
             lasers.append(Laser(cx - 3, by, spd, col, is_enemy=True))
-
         elif self.enemy_type == "elite":
-            # Burst di 3 laser in rapida successione (offset Y)
             for dy in [0, 6, 12]:
                 lasers.append(Laser(cx - 2, by + dy, spd, col, is_enemy=True))
         else:
-            # Tipo sconosciuto: laser singolo di default
             lasers.append(Laser(cx - 2, by, spd, col, is_enemy=True))
 
         return lasers
@@ -189,19 +171,19 @@ class Enemy:
     # ------------------------------------------------------------------
 
     def draw(self, surf: pygame.Surface) -> None:
-        """Disegna lo sprite del nemico con eventuale effetto shake all'hit.
-
-        Lo shake consiste in un rapido offset orizzontale alternato che
-        decresce col tempo, identico al feedback del boss.  Non viene
-        disegnato nessun overlay bianco sulla hitbox.
-
-        Args:
-            surf: Surface di destinazione.
-        """
+        """Disegna lo sprite animato del nemico con eventuale shake."""
         if not self.alive:
             return
 
-        # Calcola offset di shake (decresce proporzionalmente al timer)
+        # Avanza animazione
+        self._frame_timer += 1
+        if self._frame_timer >= self._frame_delay:
+            self._frame_timer = 0
+            frames = self._get_frames()
+            if frames:
+                self._frame_idx = (self._frame_idx + 1) % len(frames)
+
+        # Calcola offset di shake
         offset_x = 0
         if self._shake_timer > 0:
             ratio = self._shake_timer / _SHAKE_DURATION
@@ -209,19 +191,22 @@ class Enemy:
                 1 if self._shake_timer % 2 == 0 else -1)
             self._shake_timer -= 1
 
-        sprite = self._sprite()
-        surf.blit(sprite, (int(self.x + offset_x), int(self.y)))
+        frames = self._get_frames()
+        if frames:
+            frame = frames[self._frame_idx % len(frames)]
+            surf.blit(frame, (int(self.x + offset_x), int(self.y)))
+        else:
+            # Fallback: rettangolo colorato
+            pygame.draw.rect(
+                surf, RED,
+                (int(self.x + offset_x), int(self.y), self.width, self.height))
 
     # ------------------------------------------------------------------
     # HITBOX
     # ------------------------------------------------------------------
 
     def get_rect(self) -> pygame.Rect:
-        """Restituisce la hitbox del nemico, ridotta rispetto allo sprite.
-
-        La riduzione rende le collisioni piu' 'fair' per il giocatore.
-        Shrink: 6 px per lato orizzontale, 4 px per lato verticale.
-        """
+        """Restituisce la hitbox del nemico, ridotta rispetto allo sprite."""
         sx, sy = 6, 4
         return pygame.Rect(
             self.x + sx,
