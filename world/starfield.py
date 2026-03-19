@@ -1,10 +1,11 @@
 """
-StarField -- parallax star background.
+StarField -- sfondo stellare con parallasse.
 
-Three depth layers with different star sizes and speeds create a
-parallax effect that simulates flying through space.
+Tre livelli di profondità con dimensioni e velocità stelle diverse
+creano un effetto parallasse che simula il volo attraverso lo spazio.
 
-Optimized: uses pre-rendered star surfaces to avoid per-star draw calls.
+Ottimizzato: usa surface stelle pre-renderizzate per evitare chiamate
+di disegno per-stella.
 """
 
 import random
@@ -14,15 +15,15 @@ from core.constants import SCREEN_WIDTH, SCREEN_HEIGHT
 
 
 class StarField:
-    """Parallax starfield with 3 depth layers.
+    """Campo stellare con parallasse a 3 livelli di profondità.
 
-    Layer 0 (distant): Small, slow stars.
-    Layer 1 (medium):  Medium stars at intermediate speed.
-    Layer 2 (near):    Large, fast stars.
+    Livello 0 (distante): Stelle piccole e lente.
+    Livello 1 (medio):    Stelle medie a velocità intermedia.
+    Livello 2 (vicino):   Stelle grandi e veloci.
     """
 
     def __init__(self):
-        """Generate stars for each depth layer."""
+        """Genera le stelle per ogni livello di profondità."""
         self.layers: list[list[dict]] = []
         for speed, count, size in [(0.3, 50, 1), (0.7, 30, 2), (1.2, 15, 3)]:
             stars = []
@@ -39,10 +40,10 @@ class StarField:
             self.layers.append(stars)
 
     def update(self) -> None:
-        """Move stars downward (parallax effect).
+        """Muove le stelle verso il basso (effetto parallasse).
 
-        When a star exits the bottom, it wraps to the top with
-        a new X position and brightness.
+        Quando una stella esce dal fondo, torna in alto con una
+        nuova posizione X e luminosità.
         """
         for layer in self.layers:
             for star in layer:
@@ -55,13 +56,13 @@ class StarField:
                     star["color"] = (b, b, min(255, b + 20))
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Draw all stars across all layers.
+        """Disegna tutte le stelle su tutti i livelli.
 
-        Stars are rendered as white-blueish circles with variable brightness.
-        Uses cached color tuples for performance.
+        Le stelle sono renderizzate come cerchi bianco-azzurrini con
+        luminosità variabile. Usa tuple colore cached per prestazioni.
 
         Args:
-            surface: Target surface.
+            surface: Surface di destinazione.
         """
         _draw_circle = pygame.draw.circle
         for layer in self.layers:

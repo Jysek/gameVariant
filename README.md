@@ -1,4 +1,4 @@
-# Space Shooter -- Infinite Survival v2.0
+# Space Shooter -- Infinite Survival v2.1
 
 Un videogioco 2D arcade ispirato a Space Invaders, sviluppato in **Python** con **Pygame**.
 
@@ -13,6 +13,7 @@ Un videogioco 2D arcade ispirato a Space Invaders, sviluppato in **Python** con 
 | Python     | 3.10+          | [python.org](https://www.python.org) |
 | Pygame     | 2.0+           | `pip install pygame` |
 | Pillow     | 9.0+           | `pip install Pillow` |
+| NumPy      | 1.20+          | `pip install numpy` |
 
 ---
 
@@ -20,7 +21,7 @@ Un videogioco 2D arcade ispirato a Space Invaders, sviluppato in **Python** con 
 
 ```bash
 # Installa le dipendenze
-pip install pygame Pillow
+pip install pygame Pillow numpy
 
 # Avvia il gioco
 python main.py
@@ -92,17 +93,16 @@ Le formazioni hanno **tipi misti**: nemici deboli (scout) nelle righe frontali e
 
 ---
 
-## Boss Fight (5 varianti)
+## Boss Fight (4 varianti)
 
-Ogni boss ha un'**animazione GIF unica** e un **pattern di sparo esclusivo**. Lo spawn del boss e' **casuale con probabilita' uguale** per ognuno dei 5 boss.
+Ogni boss ha un'**animazione GIF unica** e un **pattern di sparo esclusivo**. Lo spawn del boss e' **casuale con probabilita' uguale** per ognuno dei 4 boss.
 
 | Variante | Nome | Pattern laser | Descrizione |
 |----------|------|---------------|-------------|
-| 0 | **Titano** | Cannoni rotanti | 4 sub-pattern: dritti, convergenti, divergenti, mirati |
+| 0 | **Titano** | Cannoni rotanti | 3 sub-pattern: dritti, convergenti, divergenti |
 | 1 | **Furia** | Burst devastanti | Raffica + burst secondario automatico |
-| 2 | **Ventaglio** | Onde a ventaglio | 7 laser con ampiezza e direzione alternata |
-| 3 | **Vortice** | Spirale rotante | 3 bracci che accelerano gradualmente |
-| 4 | **Devastatore** | Muro + onde d'urto | 8-12 proiettili in cono + cerchio di laser periodico |
+| 2 | **Ventaglio** | Onde a ventaglio | 5 laser con ampiezza e direzione alternata |
+| 3 | **Vortice** | Spirale rotante | 3 bracci che ruotano a velocita' costante |
 
 ### Scaling progressivo
 Ad ogni sconfitta le statistiche del boss successivo crescono:
@@ -220,7 +220,7 @@ SpaceShooter/
 |-- core/                    # Infrastruttura condivisa
 |   |-- __init__.py
 |   |-- assets.py            # Caricamento centralizzato (GIF/PNG -> Pygame)
-|   |-- constants.py         # Costanti globali (5 navi, 5 boss, colori, etc.)
+|   |-- constants.py         # Costanti globali (5 navi, 4 boss, colori, etc.)
 |   |-- save_manager.py      # Salvataggio/caricamento/migrazione JSON
 |   +-- sounds.py            # Audio procedurale + musica di sottofondo
 |
@@ -228,7 +228,7 @@ SpaceShooter/
 |   |-- __init__.py
 |   |-- player.py            # Navicella giocatore (5 navi animate con abilita')
 |   |-- enemy.py             # Nemico con sprite GIF animato + shake
-|   |-- boss.py              # Boss con 5 varianti + pattern laser unici
+|   |-- boss.py              # Boss con 4 varianti + pattern laser unici
 |   |-- asteroid.py          # Asteroide con corridoio sicuro
 |   |-- laser.py             # Laser dritto/angolato (supporta vx)
 |   |-- powerup.py           # Carrier + power-up cadenti
@@ -244,46 +244,51 @@ SpaceShooter/
 |   |-- __init__.py
 |   +-- starfield.py         # Sfondo stellare parallax a 3 livelli
 |
-|-- Assets/                  # Sprite PNG e GIF
-|   |-- navicelle.gif        # Navicelle giocatore (3x4 grid, animate)
-|   |-- enemy_ships.gif      # 4 tipi nemico (1x4 grid, animate)
-|   |-- boss.gif ... boss_4  # 5 varianti boss animate
-|   |-- explosionGif.gif     # Esplosione animata
-|   |-- asteroid_*.png       # Sprite asteroidi
-|   |-- carrier_*.png        # Sprite carrier power-up
-|   +-- powerup_*.png        # Sprite power-up cadenti
+|-- assets/                  # Sprite PNG e GIF (struttura organizzata)
+|   |-- ships/               # Navicelle giocatore (navicelle.gif)
+|   |-- enemies/             # 4 tipi nemico (enemy_ships.gif)
+|   |-- bosses/              # 4 varianti boss animate
+|   |-- lasers/              # Sprite laser (66 varianti)
+|   |-- powerups/            # Sprite carrier e power-up
+|   |-- sprites/             # Asteroidi e scie
+|   +-- effects/             # Esplosioni animate
 |
-+-- LaserSprites/            # Sprite laser (66 varianti)
+|-- Assets/                  # Sprite originali (legacy, retrocompatibile)
++-- LaserSprites/            # Sprite laser originali (legacy)
 ```
 
 ---
 
 ## Changelog
 
+### v2.1 (Refactoring)
+- **Rimosse hitbox visive dei laser** per gameplay piu' pulito
+- **Corretto bug intervalli sparo duplicati** nel modulo formation_group
+- **Riorganizzata struttura directory asset** in sottocartelle tematiche
+- **Refactoring completo** con commenti in italiano su tutte le funzioni
+- **Corretto README** per riflettere le 4 varianti boss (non 5)
+- **Rimosso codice morto** (pulse_timer inutilizzato in FallingPowerUp)
+- **Centralizzati intervalli sparo nemici** in constants.py
+- **Corretti posizionamento e dimensionamento** testi HUD e menu
+
 ### v2.0 (Release)
 - **5 navicelle giocabili** con statistiche e abilita' uniche
 - Le ultime 2 navi (Nova, Zenith) hanno il **doppio cannone**
 - Punteggi sblocco ribilanciati: 0, 200, 500, 1000, 2000
-- 5 boss con **pattern di sparo unici** e spawn **casuale equo**
+- 4 boss con **pattern di sparo unici** e spawn **casuale equo**
 - Formazioni con **tipi misti** (scout davanti, elite dietro)
 - Nuove meccaniche: **bomba**, **EMP**, **piercing**, **overdrive**, **regen**
 - **Slow motion** dopo boss kill
 - **Combo system** con moltiplicatori
 - **Grace period** con countdown (giocatore puo' muoversi)
 - Font e testi ridimensionati per leggibilita'
-- Bug fix critici (grace period, scudo, invincibilita', direzione boss)
-- 45+ test automatizzati superati
 
 ### v1.0
 - 12 navicelle giocatore animate con sblocco progressivo
 - 4 tipi di nemici con sprite animati
-- 5 varianti boss con pattern laser unici
+- 4 varianti boss con pattern laser unici
 - Sistema combo, screen shake, grace period
-
-### v6.0 (legacy)
-- 15+ formazioni con anti-ripetizione
-- Pioggia asteroidi con corridoio sicuro
 
 ---
 
-*Sviluppato con Python 3 / Pygame / Pillow -- ITSUmbria 2026*
+*Sviluppato con Python 3 / Pygame / Pillow / NumPy -- ITSUmbria 2026*
