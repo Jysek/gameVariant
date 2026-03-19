@@ -1,12 +1,12 @@
 """
-Classi Laser e AngledLaser -- proiettili del gioco.
+Laser and AngledLaser classes -- game projectiles.
 
-I laser possono essere sparati dal giocatore (verso l'alto) o dai nemici
-(verso il basso). Gli sprite vengono pre-scalati in Assets.load() per
-evitare il costoso pygame.transform.scale() ad ogni frame.
+Lasers can be fired by the player (upward) or by enemies/bosses (downward).
+Sprites are pre-scaled in Assets.load() to avoid expensive per-frame scaling.
 
-Supporta anche laser con velocita' orizzontale (``vx``) per i pattern
-di sparo avanzati dei boss.
+Supports horizontal velocity (``vx``) for advanced boss firing patterns.
+Enemy lasers use the sprite image oriented downward; no white fallback
+rectangles are drawn -- if no sprite is available, a colored glow is used.
 """
 
 import math
@@ -17,24 +17,27 @@ from core.assets import Assets
 
 
 class Laser:
-    """Proiettile laser dritto (giocatore o nemico).
+    """Straight laser projectile (player or enemy).
 
-    Supporta velocita' opzionale sull'asse X per pattern diagonali.
+    Supports optional horizontal velocity for diagonal boss patterns.
 
     Args:
-        x, y:     Posizione iniziale (angolo superiore sinistro).
-        speed:    Velocita' verticale (negativa = su, positiva = giu').
-        color:    Colore fallback se lo sprite non e' disponibile.
-        is_enemy: True se appartiene a un nemico.
-        sprite:   Surface pygame pre-caricata (opzionale).
-        vx:       Velocita' orizzontale (0 = dritto). Per i boss.
+        x, y:     Initial position (top-left corner).
+        speed:    Vertical speed (negative = up, positive = down).
+        color:    Fallback color if sprite is unavailable.
+        is_enemy: True if this laser belongs to an enemy/boss.
+        sprite:   Pre-loaded Pygame Surface (optional).
+        vx:       Horizontal velocity (0 = straight). Used for boss patterns.
     """
 
     WIDTH  = 20
     HEIGHT = 40
 
-    def __init__(self, x, y, speed, color=CYAN, is_enemy=False,
-                 sprite=None, vx: float = 0.0):
+    def __init__(
+        self, x: float, y: float, speed: float, color: tuple = CYAN,
+        is_enemy: bool = False, sprite: pygame.Surface = None,
+        vx: float = 0.0,
+    ):
         self.x = x
         self.y = y
         self.speed = speed
@@ -51,7 +54,7 @@ class Laser:
             self.image = None
 
     def update(self) -> None:
-        """Muove il laser nella sua direzione e lo disattiva se fuori schermo."""
+        """Move the laser along its trajectory; deactivate if off-screen."""
         self.y += self.speed
         self.x += self.vx
         margin = 50
@@ -61,16 +64,38 @@ class Laser:
             self.active = False
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Disegna il laser usando lo sprite pre-scalato (o fallback rettangolo)."""
+        """Draw the laser using its pre-scaled sprite.
+
+        If no sprite is available, draws a colored glow ellipse instead
+        of a plain white rectangle (eliminates white hitbox artifacts).
+        """
         if self.image:
             surface.blit(self.image, (int(self.x), int(self.y)))
         else:
-            pygame.draw.rect(
-                surface, self.color,
-                (int(self.x), int(self.y), self.WIDTH, self.HEIGHT))
+            # Draw a glowing colored ellipse instead of a white rectangle
+            glow_surf = pygame.Surface(
+                (self.WIDTH, self.HEIGHT), pygame.SRCALPHA
+            )
+            r, g, b = self.color[:3]
+            # Outer glow
+            pygame.draw.ellipse(
+                glow_surf, (r, g, b, 80),
+                (0, 0, self.WIDTH, self.HEIGHT),
+            )
+            # Inner bright core
+            core_w = max(4, self.WIDTH // 3)
+            core_x = (self.WIDTH - core_w) // 2
+            pygame.draw.ellipse(
+                glow_surf, (r, g, b, 200),
+                (core_x, 2, core_w, self.HEIGHT - 4),
+            )
+            surface.blit(glow_surf, (int(self.x), int(self.y)))
 
     def get_rect(self) -> pygame.Rect:
-        """Restituisce la hitbox del laser."""
+        """Return the collision hitbox of this laser.
+
+        The hitbox is slightly narrower than the visual for fairness.
+        """
         shrink_x = 4
         return pygame.Rect(
             self.x + shrink_x,
@@ -81,27 +106,30 @@ class Laser:
 
 
 class AngledLaser(Laser):
-    """Laser angolato usato dal power-up arma (sparo triplo).
+    """Angled laser used by the triple-shot weapon power-up.
 
-    Si muove lungo una traiettoria diagonale definita dall'angolo.
+    Moves along a diagonal trajectory defined by the angle.
 
     Args:
-        x, y:       Posizione iniziale.
-        base_speed: Velocita' base del laser.
-        angle_deg:  Angolo in gradi rispetto alla verticale.
-        color:      Colore fallback.
-        sprite:     Surface pre-caricata (opzionale).
+        x, y:       Initial position.
+        base_speed: Base laser speed.
+        angle_deg:  Angle in degrees from vertical.
+        color:      Fallback color.
+        sprite:     Pre-loaded surface (optional).
     """
 
-    def __init__(self, x, y, base_speed, angle_deg, color=CYAN, sprite=None):
+    def __init__(
+        self, x: float, y: float, base_speed: float, angle_deg: float,
+        color: tuple = CYAN, sprite: pygame.Surface = None,
+    ):
         super().__init__(x, y, base_speed, color, is_enemy=False, sprite=sprite)
         rad = math.radians(angle_deg)
         self.vx = -base_speed * math.sin(rad)
-        self.vy =  base_speed * math.cos(rad)
+        self.vy = base_speed * math.cos(rad)
         self.angle_deg = angle_deg
 
     def update(self) -> None:
-        """Muove il laser lungo la traiettoria angolata."""
+        """Move the laser along its angled trajectory."""
         self.x += self.vx
         self.y += self.vy
         margin = 50
@@ -111,10 +139,23 @@ class AngledLaser(Laser):
             self.active = False
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Disegna il laser angolato."""
+        """Draw the angled laser using its sprite or a colored glow."""
         if self.image:
             surface.blit(self.image, (int(self.x), int(self.y)))
         else:
-            pygame.draw.rect(
-                surface, self.color,
-                (int(self.x), int(self.y), self.WIDTH, self.HEIGHT))
+            # Same glow rendering as parent -- no white rectangles
+            glow_surf = pygame.Surface(
+                (self.WIDTH, self.HEIGHT), pygame.SRCALPHA
+            )
+            r, g, b = self.color[:3]
+            pygame.draw.ellipse(
+                glow_surf, (r, g, b, 80),
+                (0, 0, self.WIDTH, self.HEIGHT),
+            )
+            core_w = max(4, self.WIDTH // 3)
+            core_x = (self.WIDTH - core_w) // 2
+            pygame.draw.ellipse(
+                glow_surf, (r, g, b, 200),
+                (core_x, 2, core_w, self.HEIGHT - 4),
+            )
+            surface.blit(glow_surf, (int(self.x), int(self.y)))

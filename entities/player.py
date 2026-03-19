@@ -1,14 +1,15 @@
 """
-Classe Player -- navicella del giocatore con sprite animato da GIF.
+Player ship class with animated GIF sprite.
 
-Gestisce: movimento, sistema di vite, invincibilita' temporanea,
-power-up (scudo, velocita', arma tripla, bomba) e sparo.
+Handles: movement, lives system, temporary invincibility,
+power-ups (shield, speed, triple shot, bomb), and shooting.
 
-5 navicelle disponibili con statistiche e abilita' uniche.
-Le ultime 2 (Nova, Zenith) hanno il doppio cannone.
+5 ships available with unique stats and special abilities.
+The last 2 (Nova, Zenith) have dual cannons.
 """
 
 import math
+import random
 import pygame
 
 from core.constants import (
@@ -21,10 +22,10 @@ from entities.laser import Laser, AngledLaser
 
 
 class Player:
-    """Navicella del giocatore con sistema di vite, power-up e sparo.
+    """Player ship with lives, power-ups, specials, and shooting.
 
     Args:
-        ship_type: Indice della nave scelta (0-4).
+        ship_type: Index of the chosen ship (0-4).
     """
 
     MAX_LIVES = 3
@@ -36,7 +37,7 @@ class Player:
         self.y: float = SCREEN_HEIGHT - 80
         self.ship_type = ship_type % NUM_PLAYER_SHIPS
 
-        # Statistiche specifiche per nave
+        # Ship-specific stats
         stats = SHIP_STATS[self.ship_type] if self.ship_type < len(SHIP_STATS) else SHIP_STATS[0]
         self.base_speed = int(5 * stats["speed"])
         self.speed = self.base_speed
@@ -44,26 +45,28 @@ class Player:
         self.damage = stats.get("damage", 1)
         self.special = stats.get("special", "none")
 
-        # Doppio cannone: solo per navi con flag True
-        self.has_double_cannon = (self.ship_type < len(SHIP_DOUBLE_CANNON)
-                                   and SHIP_DOUBLE_CANNON[self.ship_type])
+        # Dual cannon: only for ships flagged True
+        self.has_double_cannon = (
+            self.ship_type < len(SHIP_DOUBLE_CANNON)
+            and SHIP_DOUBLE_CANNON[self.ship_type]
+        )
 
         self.last_shot_time = 0
         self.alive = True
 
-        # Sistema di vite
+        # Lives system
         self.lives = Player.MAX_LIVES
 
-        # Colore associato alla nave
+        # Ship color (for lasers and HUD)
         self.color = SHIP_COLORS[self.ship_type % len(SHIP_COLORS)]
 
-        # Limiti di movimento verticale
+        # Vertical movement limits
         self.min_y = SCREEN_HEIGHT // 3
 
-        # Invincibilita' temporanea
-        self.invincible = False
+        # Temporary invincibility after taking damage
+        self.invincible          = False
         self.invincible_timer    = 0
-        self.invincible_duration = 2 * 60
+        self.invincible_duration = 2 * 60  # 2 seconds at 60 FPS
 
         # -- POWER-UP STATE --
         self.shield_active   = False
@@ -79,42 +82,42 @@ class Player:
         self.triple_shot_timer    = 0
         self.triple_shot_duration = 5 * 60
 
-        # Bomba: numero di bombe disponibili
+        # Bomb: available bomb count
         self.bombs = 0
         self.max_bombs = 3
         self.bomb_cooldown = 0
-        self.bomb_cooldown_max = 120  # 2 secondi
+        self.bomb_cooldown_max = 120  # 2 seconds
 
-        # Abilita' speciale - cooldown
+        # Special ability cooldowns
         self.special_cooldown = 0
         self.special_active = False
         self.special_timer = 0
 
-        # Regen (Phoenix): rigenera 1 HP ogni 15 secondi
+        # Regen (Phoenix): regenerate 1 HP every 15 seconds
         self._regen_timer = 0
         self._regen_interval = 15 * 60
 
-        # Piercing (Striker): i laser attraversano i nemici
+        # Piercing (Striker): lasers pass through enemies
         self.piercing_shots = (self.special == "piercing")
 
-        # EMP (Nova): cooldown per EMP area
+        # EMP (Nova): area-of-effect stun
         self.emp_cooldown = 0
-        self.emp_max_cooldown = 20 * 60  # 20 secondi
+        self.emp_max_cooldown = 20 * 60
         self.emp_ready = False
 
-        # Overdrive (Zenith): modalita' fuoco rapido temporanea
+        # Overdrive (Zenith): temporary rapid-fire mode
         self.overdrive_active = False
         self.overdrive_timer = 0
         self.overdrive_duration = 5 * 60
         self.overdrive_cooldown = 0
         self.overdrive_max_cooldown = 30 * 60
 
-        # Animazione GIF
+        # GIF animation state
         self._frame_idx   = 0
         self._frame_timer = 0
         self._frame_delay = 6
 
-        # Scia motore (effetto visivo)
+        # Engine trail visual particles
         self._engine_particles: list[dict] = []
 
     # ========================================================================
@@ -122,14 +125,18 @@ class Player:
     # ========================================================================
 
     def update(self, keys) -> None:
-        """Aggiorna posizione, power-up, invincibilita' e animazione."""
+        """Update position, power-ups, invincibility, and animation.
+
+        Args:
+            keys: Pygame key state from ``pygame.key.get_pressed()``.
+        """
         if not self.alive:
             return
 
         self._update_powerup_timers()
         self._update_special_timers()
 
-        # Aggiorna invincibilita'
+        # Update invincibility
         if self.invincible:
             self.invincible_timer -= 1
             if self.invincible_timer <= 0:
@@ -137,7 +144,7 @@ class Player:
 
         current_speed = self.speed
 
-        # Movimento WASD / frecce
+        # WASD / arrow key movement
         dx, dy = 0, 0
         if keys[pygame.K_LEFT] or keys[pygame.K_a]:
             dx -= current_speed
@@ -148,7 +155,7 @@ class Player:
         if keys[pygame.K_DOWN] or keys[pygame.K_s]:
             dy += current_speed
 
-        # Normalizza velocita' diagonale
+        # Normalize diagonal speed
         if dx != 0 and dy != 0:
             factor = 0.707  # 1/sqrt(2)
             dx *= factor
@@ -157,11 +164,11 @@ class Player:
         self.x += dx
         self.y += dy
 
-        # Limiti schermo
+        # Clamp to screen bounds
         self.x = max(0, min(SCREEN_WIDTH - self.width, self.x))
         self.y = max(self.min_y, min(SCREEN_HEIGHT - self.height, self.y))
 
-        # Avanza animazione GIF
+        # Advance GIF animation
         self._frame_timer += 1
         if self._frame_timer >= self._frame_delay:
             self._frame_timer = 0
@@ -169,11 +176,11 @@ class Player:
             if frames:
                 self._frame_idx = (self._frame_idx + 1) % len(frames)
 
-        # Genera particelle motore
+        # Generate engine trail particles
         self._update_engine_particles()
 
     def _update_powerup_timers(self) -> None:
-        """Aggiorna i timer dei power-up attivi."""
+        """Tick down active power-up timers and deactivate expired ones."""
         if self.shield_active:
             self.shield_timer -= 1
             if self.shield_timer <= 0:
@@ -194,22 +201,22 @@ class Player:
             self.bomb_cooldown -= 1
 
     def _update_special_timers(self) -> None:
-        """Aggiorna i timer delle abilita' speciali."""
-        # Phoenix: regen
+        """Tick down special ability cooldowns and timers."""
+        # Phoenix: passive HP regeneration
         if self.special == "regen" and self.lives < Player.MAX_LIVES:
             self._regen_timer += 1
             if self._regen_timer >= self._regen_interval:
                 self._regen_timer = 0
                 self.lives = min(Player.MAX_LIVES, self.lives + 1)
 
-        # Nova: EMP
+        # Nova: EMP cooldown
         if self.special == "emp":
             if self.emp_cooldown > 0:
                 self.emp_cooldown -= 1
             else:
                 self.emp_ready = True
 
-        # Zenith: Overdrive
+        # Zenith: Overdrive cooldown
         if self.special == "overdrive":
             if self.overdrive_active:
                 self.overdrive_timer -= 1
@@ -220,8 +227,7 @@ class Player:
                 self.overdrive_cooldown -= 1
 
     def _update_engine_particles(self) -> None:
-        """Genera e aggiorna particelle della scia motore."""
-        import random
+        """Generate and update engine trail particles behind the ship."""
         if self.alive:
             cx = self.x + self.width // 2
             by = self.y + self.height
@@ -239,20 +245,24 @@ class Player:
             p["size"] = max(0, p["size"] - 0.08)
             if p["alpha"] > 0 and p["size"] > 0:
                 new_particles.append(p)
-        self._engine_particles = new_particles[-30:]  # Max 30 particelle
+        self._engine_particles = new_particles[-30:]  # Cap at 30 particles
 
     def _get_frames(self) -> list[pygame.Surface]:
-        """Restituisce i frame animati della nave corrente."""
+        """Return the animated frames for the current ship type."""
         if self.ship_type < len(Assets.player_ship_frames):
             return Assets.player_ship_frames[self.ship_type]
         return []
 
     # ========================================================================
-    # POWER-UP
+    # POWER-UPS
     # ========================================================================
 
     def apply_powerup(self, powerup_type: str) -> None:
-        """Applica l'effetto di un power-up al giocatore."""
+        """Apply a power-up effect to the player.
+
+        Args:
+            powerup_type: One of 'vita', 'scudo', 'velocita', 'arma', 'bomba'.
+        """
         if powerup_type == "vita":
             if self.lives < Player.MAX_LIVES:
                 self.lives += 1
@@ -270,11 +280,11 @@ class Player:
             self.bombs = min(self.max_bombs, self.bombs + 1)
 
     # ========================================================================
-    # BOMBA
+    # BOMB
     # ========================================================================
 
     def use_bomb(self) -> bool:
-        """Tenta di usare una bomba. Restituisce True se usata."""
+        """Attempt to use a bomb. Returns True if successfully used."""
         if self.bombs > 0 and self.bomb_cooldown <= 0:
             self.bombs -= 1
             self.bomb_cooldown = self.bomb_cooldown_max
@@ -282,11 +292,11 @@ class Player:
         return False
 
     # ========================================================================
-    # ABILITA' SPECIALI
+    # SPECIAL ABILITIES
     # ========================================================================
 
     def activate_emp(self) -> bool:
-        """Attiva EMP (solo Nova). Restituisce True se attivato."""
+        """Activate EMP (Nova only). Returns True if activated."""
         if self.special == "emp" and self.emp_ready:
             self.emp_ready = False
             self.emp_cooldown = self.emp_max_cooldown
@@ -294,7 +304,7 @@ class Player:
         return False
 
     def activate_overdrive(self) -> bool:
-        """Attiva Overdrive (solo Zenith). Restituisce True se attivato."""
+        """Activate Overdrive (Zenith only). Returns True if activated."""
         if (self.special == "overdrive" and not self.overdrive_active
                 and self.overdrive_cooldown <= 0):
             self.overdrive_active = True
@@ -303,14 +313,16 @@ class Player:
         return False
 
     # ========================================================================
-    # DANNO
+    # DAMAGE
     # ========================================================================
 
     def take_damage(self) -> bool:
-        """Il giocatore subisce danno: perde una vita.
+        """Player takes damage: loses one life.
+
+        Shield and invincibility are checked before applying damage.
 
         Returns:
-            ``True`` se il giocatore e' morto (0 vite).
+            True if the player is dead (0 lives remaining).
         """
         if self.invincible or self.shield_active:
             return False
@@ -326,16 +338,25 @@ class Player:
             return False
 
     # ========================================================================
-    # SPARO
+    # SHOOTING
     # ========================================================================
 
     def shoot(self, current_time: int) -> list[Laser]:
-        """Spara laser. Le ultime 2 navi usano doppio cannone."""
+        """Fire lasers based on ship type and active power-ups.
+
+        Dual-cannon ships fire two parallel lasers. Triple shot adds
+        angled lasers. Overdrive halves the cooldown.
+
+        Args:
+            current_time: Current time in milliseconds (from pygame.time.get_ticks).
+
+        Returns:
+            List of newly created ``Laser`` objects.
+        """
         if not self.alive:
             return []
 
         cooldown = self.shot_cooldown
-        # Overdrive: dimezza il cooldown
         if self.overdrive_active:
             cooldown = cooldown // 2
 
@@ -350,15 +371,20 @@ class Player:
         return self._shoot_standard(current_sprite)
 
     def _shoot_double(self, sprite: pygame.Surface) -> list[Laser]:
-        """Sparo doppio cannone laterale."""
+        """Fire from dual lateral cannons.
+
+        Args:
+            sprite: Laser sprite to use.
+
+        Returns:
+            List of ``Laser`` objects.
+        """
         cannon_offset = 16
         center_x = self.x + self.width // 2 - 10
 
         lasers: list[Laser] = [
-            Laser(center_x - cannon_offset, self.y, -7,
-                  self.color, sprite=sprite),
-            Laser(center_x + cannon_offset, self.y, -7,
-                  self.color, sprite=sprite),
+            Laser(center_x - cannon_offset, self.y, -7, self.color, sprite=sprite),
+            Laser(center_x + cannon_offset, self.y, -7, self.color, sprite=sprite),
         ]
 
         if self.triple_shot_active:
@@ -367,14 +393,21 @@ class Player:
             lasers.extend([
                 AngledLaser(center_x - cannon_offset, self.y, -7, -45,
                             self.color, sprite=left_sprite),
-                AngledLaser(center_x + cannon_offset, self.y, -7,  45,
+                AngledLaser(center_x + cannon_offset, self.y, -7, 45,
                             self.color, sprite=right_sprite),
             ])
 
         return lasers
 
     def _shoot_standard(self, sprite: pygame.Surface) -> list[Laser]:
-        """Sparo singolo cannone centrale."""
+        """Fire from a single center cannon.
+
+        Args:
+            sprite: Laser sprite to use.
+
+        Returns:
+            List of ``Laser`` objects.
+        """
         center_x = self.x + self.width // 2 - 10
         lasers: list[Laser] = [
             Laser(center_x, self.y, -7, self.color, sprite=sprite),
@@ -384,10 +417,8 @@ class Player:
             left_sprite  = Assets.laser_left_angular[self.ship_type % len(Assets.laser_left_angular)]
             right_sprite = Assets.laser_right_angular[self.ship_type % len(Assets.laser_right_angular)]
             lasers.extend([
-                AngledLaser(center_x, self.y, -7, -45,
-                            self.color, sprite=left_sprite),
-                AngledLaser(center_x, self.y, -7,  45,
-                            self.color, sprite=right_sprite),
+                AngledLaser(center_x, self.y, -7, -45, self.color, sprite=left_sprite),
+                AngledLaser(center_x, self.y, -7, 45, self.color, sprite=right_sprite),
             ])
 
         return lasers
@@ -397,16 +428,22 @@ class Player:
     # ========================================================================
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Disegna la navicella animata con effetti."""
+        """Draw the animated ship sprite with visual effects.
+
+        Handles: engine trail, invincibility blink, overdrive tint, shield.
+
+        Args:
+            surface: Target surface.
+        """
         if not self.alive:
             return
 
-        # Disegna scia motore
+        # Draw engine trail behind the ship
         self._draw_engine_trail(surface)
 
-        # Effetto lampeggio durante invincibilita'
+        # Blink effect during invincibility
         if self.invincible and (self.invincible_timer // 4) % 2 == 0:
-            pass  # frame invisibile
+            pass  # Invisible frame
         else:
             frames = self._get_frames()
             if frames:
@@ -416,7 +453,7 @@ class Player:
                 scaled_ship = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
                 pygame.draw.rect(scaled_ship, self.color, (0, 0, self.width, self.height))
 
-            # Effetto overdrive: tinta dorata
+            # Overdrive golden tint
             if self.overdrive_active:
                 overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
                 alpha = int(abs(math.sin(self.overdrive_timer * 0.15)) * 60) + 30
@@ -425,23 +462,33 @@ class Player:
 
             surface.blit(scaled_ship, (int(self.x), int(self.y)))
 
-        # Scudo
+        # Shield visual
         if self.shield_active:
             self._draw_shield(surface)
 
     def _draw_engine_trail(self, surface: pygame.Surface) -> None:
-        """Disegna la scia del motore."""
+        """Draw glowing engine trail particles.
+
+        Args:
+            surface: Target surface.
+        """
         for p in self._engine_particles:
             size = max(1, int(p["size"]))
             alpha = max(0, min(255, int(p["alpha"])))
             s = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
             r, g, b = self.color
             pygame.draw.circle(s, (r, g, b, alpha), (size, size), size)
-            surface.blit(s, (int(p["x"] - size), int(p["y"] - size)),
-                         special_flags=pygame.BLEND_ADD)
+            surface.blit(
+                s, (int(p["x"] - size), int(p["y"] - size)),
+                special_flags=pygame.BLEND_ADD,
+            )
 
     def _draw_shield(self, surface: pygame.Surface) -> None:
-        """Disegna l'effetto scudo attorno alla nave."""
+        """Draw the shield bubble and its remaining-time bar.
+
+        Args:
+            surface: Target surface.
+        """
         shield_alpha  = int(abs(math.sin(self.shield_timer * 0.1)) * 60) + 60
         shield_radius = max(self.width, self.height) // 2 + 10
 
@@ -458,22 +505,23 @@ class Player:
         cy = self.y + self.height // 2 - shield_radius
         surface.blit(shield_surf, (int(cx), int(cy)))
 
-        # Barra tempo rimanente scudo
+        # Shield time bar
         bar_w = self.width
         bar_x = self.x
         bar_y = self.y - 8
         pct = self.shield_timer / self.shield_duration
-        pygame.draw.rect(
-            surface, (40, 40, 40), (int(bar_x), int(bar_y), bar_w, 3))
-        pygame.draw.rect(
-            surface, CYAN, (int(bar_x), int(bar_y), int(bar_w * pct), 3))
+        pygame.draw.rect(surface, (40, 40, 40), (int(bar_x), int(bar_y), bar_w, 3))
+        pygame.draw.rect(surface, CYAN, (int(bar_x), int(bar_y), int(bar_w * pct), 3))
 
     def get_rect(self) -> pygame.Rect:
-        """Restituisce la hitbox del giocatore (ridotta per fairness)."""
+        """Return the player hitbox (shrunken for fairness).
+
+        The hitbox is 16px smaller than the visual sprite on each axis.
+        """
         shrink = 8
         return pygame.Rect(
             self.x + shrink,
             self.y + shrink,
-            self.width  - shrink * 2,
+            self.width - shrink * 2,
             self.height - shrink * 2,
         )

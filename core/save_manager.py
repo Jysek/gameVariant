@@ -1,8 +1,8 @@
 """
-Gestione del salvataggio e caricamento dei dati di gioco.
+Save data management for game progress.
 
-Salva/carica record, sblocchi navicelle e top punteggi da un file JSON.
-Supporta 5 navicelle con sblocco progressivo basato sul punteggio.
+Loads/saves records, ship unlocks, and top scores to a JSON file.
+Supports 5 ships with progressive score-based unlocking.
 """
 
 import json
@@ -11,8 +11,8 @@ import os
 from core.constants import NUM_PLAYER_SHIPS, SHIP_UNLOCK_SCORES
 
 
-def _get_save_path():
-    """Restituisce il percorso del file di salvataggio."""
+def _get_save_path() -> str:
+    """Return the absolute path to the save data file."""
     try:
         base_dir = os.path.dirname(os.path.abspath(os.path.join(__file__, os.pardir)))
     except Exception:
@@ -22,7 +22,7 @@ def _get_save_path():
 
 SAVE_FILE = _get_save_path()
 
-# Default: le navi con unlock_score == 0 sono sbloccate di default
+# Default: ships with unlock_score == 0 are unlocked by default
 _DEFAULT_UNLOCKED = [score == 0 for score in SHIP_UNLOCK_SCORES]
 
 _DEFAULT_DATA = {
@@ -36,28 +36,27 @@ _DEFAULT_DATA = {
 
 
 def load_save_data() -> dict:
-    """Carica i dati di salvataggio dal disco.
+    """Load save data from disk.
 
-    Gestisce automaticamente la migrazione da versioni precedenti
-    (10/12 navi -> 5 navi).
+    Automatically handles migration from previous versions
+    (10/12 ships -> 5 ships).
 
     Returns:
-        dict: Dati di salvataggio, con campi mancanti riempiti dai default.
+        dict: Save data with missing fields filled from defaults.
     """
     try:
         if os.path.exists(SAVE_FILE):
             with open(SAVE_FILE, "r") as f:
                 data = json.load(f)
 
-                # Merge con default per campi mancanti
+                # Merge with defaults for missing fields
                 for key, default_value in _DEFAULT_DATA.items():
                     if key not in data:
                         data[key] = default_value
 
-                # Migrazione: gestisci il passaggio a 5 navi
+                # Migration: handle transition to 5 ships
                 ships = data.get("unlocked_ships", [])
                 if len(ships) != NUM_PLAYER_SHIPS:
-                    # Ricrea la lista per 5 navi basandosi sul punteggio
                     new_ships = []
                     for i in range(NUM_PLAYER_SHIPS):
                         if i < len(ships) and ships[i]:
@@ -66,9 +65,8 @@ def load_save_data() -> dict:
                             new_ships.append(data["high_score"] >= SHIP_UNLOCK_SCORES[i])
                     data["unlocked_ships"] = new_ships
 
-                # Controlla sblocchi in base al record corrente
+                # Check unlocks based on current high score
                 check_unlocks(data)
-
                 return data
     except (json.JSONDecodeError, IOError):
         pass
@@ -76,7 +74,11 @@ def load_save_data() -> dict:
 
 
 def save_data(data: dict) -> None:
-    """Salva i dati di gioco su disco."""
+    """Persist game data to disk as JSON.
+
+    Args:
+        data: The save data dictionary to write.
+    """
     try:
         with open(SAVE_FILE, "w") as f:
             json.dump(data, f, indent=2)
@@ -85,19 +87,21 @@ def save_data(data: dict) -> None:
 
 
 def check_unlocks(data: dict) -> list[int]:
-    """Verifica e sblocca le navi raggiungibili con il punteggio corrente.
+    """Check and unlock ships reachable with the current high score.
+
+    Args:
+        data: Save data dictionary (modified in-place).
 
     Returns:
-        Lista di indici delle navi appena sbloccate.
+        List of indices of newly unlocked ships.
     """
     newly_unlocked: list[int] = []
     high = data.get("high_score", 0)
     ships = data.get("unlocked_ships", list(_DEFAULT_UNLOCKED))
 
-    # Assicura che la lista abbia la lunghezza corretta
+    # Ensure the list has the correct length
     while len(ships) < NUM_PLAYER_SHIPS:
         ships.append(False)
-    # Tronca se troppo lunga
     ships = ships[:NUM_PLAYER_SHIPS]
 
     for i, req_score in enumerate(SHIP_UNLOCK_SCORES):
