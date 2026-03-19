@@ -5,8 +5,8 @@ Lasers can be fired by the player (upward) or by enemies/bosses (downward).
 Sprites are pre-scaled in Assets.load() to avoid expensive per-frame scaling.
 
 Supports horizontal velocity (``vx``) for advanced boss firing patterns.
-Enemy lasers use the sprite image oriented downward; no white fallback
-rectangles are drawn -- if no sprite is available, a colored glow is used.
+Enemy lasers use the sprite image oriented downward; if no sprite is
+available, a minimal colored rectangle is drawn as fallback.
 """
 
 import math
@@ -66,30 +66,18 @@ class Laser:
     def draw(self, surface: pygame.Surface) -> None:
         """Draw the laser using its pre-scaled sprite.
 
-        If no sprite is available, draws a colored glow ellipse instead
-        of a plain white rectangle (eliminates white hitbox artifacts).
+        If no sprite is available, draws a small colored rectangle
+        as a minimal fallback.
         """
         if self.image:
             surface.blit(self.image, (int(self.x), int(self.y)))
         else:
-            # Draw a glowing colored ellipse instead of a white rectangle
-            glow_surf = pygame.Surface(
-                (self.WIDTH, self.HEIGHT), pygame.SRCALPHA
-            )
+            # Minimal colored rectangle fallback (no glow)
             r, g, b = self.color[:3]
-            # Outer glow
-            pygame.draw.ellipse(
-                glow_surf, (r, g, b, 80),
-                (0, 0, self.WIDTH, self.HEIGHT),
+            pygame.draw.rect(
+                surface, (r, g, b),
+                (int(self.x) + 6, int(self.y), self.WIDTH - 12, self.HEIGHT),
             )
-            # Inner bright core
-            core_w = max(4, self.WIDTH // 3)
-            core_x = (self.WIDTH - core_w) // 2
-            pygame.draw.ellipse(
-                glow_surf, (r, g, b, 200),
-                (core_x, 2, core_w, self.HEIGHT - 4),
-            )
-            surface.blit(glow_surf, (int(self.x), int(self.y)))
 
     def get_rect(self) -> pygame.Rect:
         """Return the collision hitbox of this laser.
@@ -139,23 +127,13 @@ class AngledLaser(Laser):
             self.active = False
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Draw the angled laser using its sprite or a colored glow."""
+        """Draw the angled laser using its sprite or a minimal fallback."""
         if self.image:
             surface.blit(self.image, (int(self.x), int(self.y)))
         else:
-            # Same glow rendering as parent -- no white rectangles
-            glow_surf = pygame.Surface(
-                (self.WIDTH, self.HEIGHT), pygame.SRCALPHA
-            )
+            # Minimal colored rectangle fallback (no glow)
             r, g, b = self.color[:3]
-            pygame.draw.ellipse(
-                glow_surf, (r, g, b, 80),
-                (0, 0, self.WIDTH, self.HEIGHT),
+            pygame.draw.rect(
+                surface, (r, g, b),
+                (int(self.x) + 6, int(self.y), self.WIDTH - 12, self.HEIGHT),
             )
-            core_w = max(4, self.WIDTH // 3)
-            core_x = (self.WIDTH - core_w) // 2
-            pygame.draw.ellipse(
-                glow_surf, (r, g, b, 200),
-                (core_x, 2, core_w, self.HEIGHT - 4),
-            )
-            surface.blit(glow_surf, (int(self.x), int(self.y)))

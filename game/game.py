@@ -1,16 +1,14 @@
-"""Space Shooter -- Infinite Survival  |  game.py v11 (refactored)
+"""Space Shooter -- Infinite Survival  |  game.py v12 (refactored)
 
 Authors: Ceccariglia Emanuele & Andrea Cestelli -- ITSUmbria 2026
 
 Main game loop, state management, spawning, collisions, HUD, and pause.
 
-Changes in v11:
-- Removed boss_4 (Devastatore) -- now 4 boss variants.
-- All boss laser patterns ensure downward movement (vy > 0).
-- Removed white hitbox rectangles from laser rendering.
-- Bomb uses proper sprites (powerup_bomba.png, carrier_bomba.png).
-- Player ship stats verified and each ship is uniquely balanced.
-- Improved game mechanics and code quality.
+Changes in v12:
+- Removed all glow rectangles/ellipses from laser and power-up rendering.
+- Carriers can now be destroyed by asteroids during asteroid rain.
+- Boss laser patterns simplified: predictable, functional, and fair.
+- Asteroid-carrier collision check added to normal and rain phases.
 - Full English documentation on all functions.
 """
 
@@ -671,6 +669,8 @@ class Game:
         self._upd_all_entities()
 
         pr = self.player.get_rect()
+        self._chk_pl_vs_carrier()
+        self._chk_asteroid_carrier()
         self._chk_asteroid_player(pr)
         self._chk_pu_player(pr)
         self._cleanup()
@@ -684,6 +684,8 @@ class Game:
         self._upd_all_entities()
 
         pr = self.player.get_rect()
+        self._chk_pl_vs_carrier()
+        self._chk_asteroid_carrier()
         self._chk_asteroid_player(pr)
         self._chk_pu_player(pr)
         self._cleanup()
@@ -808,6 +810,7 @@ class Game:
         self._chk_el_vs_player(pr)
         self._chk_boss_vs_player(pr)
         self._chk_formation_vs_player(pr)
+        self._chk_asteroid_carrier()
         self._chk_asteroid_player(pr)
         self._chk_pu_player(pr)
 
@@ -1003,6 +1006,30 @@ class Game:
                     self.sounds["game_over"].play()
                     self._trigger_shake(SHAKE_INTENSITY_HEAVY)
                 return
+
+    def _chk_asteroid_carrier(self) -> None:
+        """Check asteroids colliding with power-up carriers.
+
+        During asteroid rain, asteroids can destroy carriers on impact.
+        The carrier is instantly destroyed and drops its power-up.
+        """
+        for ast in self.asteroids:
+            if not ast.active:
+                continue
+            for carrier in self.carriers:
+                if not carrier.alive:
+                    continue
+                if ast.get_rect().colliderect(carrier.get_rect()):
+                    carrier.alive = False
+                    self.explosions.append(Explosion(
+                        carrier.x + carrier.width // 2,
+                        carrier.y + carrier.height // 2))
+                    self.sounds["carrier_destroyed"].play()
+                    self.falling_powerups.append(FallingPowerUp(
+                        carrier.x + carrier.width // 2 - POWERUP_ITEM_SIZE // 2,
+                        carrier.y + carrier.height // 2 - POWERUP_ITEM_SIZE // 2,
+                        carrier.powerup_type))
+                    self._trigger_shake(SHAKE_INTENSITY_LIGHT)
 
     def _chk_pu_player(self, pr: pygame.Rect) -> None:
         """Check falling power-ups being collected by the player."""
