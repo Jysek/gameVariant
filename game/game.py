@@ -18,6 +18,9 @@ Modifiche in v14:
 - Rimosse mini-esplosioni d'impatto laser su boss, carrier e nemici.
   Le piccole esplosioni al punto di collisione laser (size 28-32) sono
   state eliminate. Le esplosioni di distruzione restano invariate.
+- Aumentata soglia alpha glow laser da 80 a 180 per eliminare i
+  rettangoli semi-trasparenti visibili quando un laser colpisce
+  carrier, nemici, boss o passa sopra il testo dell'HUD.
 """
 
 import math

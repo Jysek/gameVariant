@@ -10,7 +10,8 @@ per il rendering in tempo reale.
 
 Gli sprite laser vengono puliti dall'alone semi-trasparente durante il
 caricamento per evitare rettangoli colorati quando i laser passano sopra
-i testi dell'HUD.
+carrier, nemici, boss o testi dell'HUD. La soglia alpha è alta (180) per
+eliminare completamente qualsiasi rettangolo semi-trasparente visibile.
 """
 
 import os
@@ -55,7 +56,9 @@ _ENEMY_BG   = (255, 255, 255)
 
 # Soglia alpha per rimuovere l'alone glow dagli sprite laser.
 # I pixel con alpha <= questa soglia diventano completamente trasparenti.
-_LASER_GLOW_ALPHA_THRESHOLD = 80
+# Valore alto (180) per eliminare completamente i rettangoli semi-trasparenti
+# che apparivano quando un laser passava sopra carrier, nemici o testi HUD.
+_LASER_GLOW_ALPHA_THRESHOLD = 180
 
 
 def _base() -> str:
