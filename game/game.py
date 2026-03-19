@@ -13,6 +13,14 @@ Modifiche in v13:
 - Corretto bug intervalli sparo duplicati in formation_group.
 - Corretto HUD posizionamento e dimensionamento testi.
 - Documentazione completa in italiano su tutte le funzioni.
+
+Modifiche in v14:
+- Rimosse mini-esplosioni d'impatto laser su boss, carrier e nemici.
+  Le piccole esplosioni al punto di collisione laser (size 28-32) sono
+  state eliminate. Le esplosioni di distruzione restano invariate.
+- Aumentata soglia alpha glow laser da 80 a 180 per eliminare i
+  rettangoli semi-trasparenti visibili quando un laser colpisce
+  carrier, nemici, boss o passa sopra il testo dell'HUD.
 """
 
 import math
@@ -852,9 +860,6 @@ class Game:
                 laser.active = False
                 self.sounds["boss_hit"].play()
                 self._trigger_shake(SHAKE_INTENSITY_LIGHT)
-                self.explosions.append(Explosion(
-                    laser.x + Laser.WIDTH // 2,
-                    laser.y, size=32))
                 if self.boss.take_damage(dmg):
                     self._on_boss_defeated()
                     break
@@ -884,9 +889,6 @@ class Game:
                             carrier.powerup_type))
                     else:
                         self.sounds["carrier_hit"].play()
-                        self.explosions.append(Explosion(
-                            laser.x + Laser.WIDTH // 2,
-                            laser.y, size=28))
                     break
 
     def _chk_pl_vs_formations(self) -> None:
@@ -913,9 +915,6 @@ class Game:
                             self.sounds["explosion"].play()
                         else:
                             self.sounds["boss_hit"].play()
-                            self.explosions.append(Explosion(
-                                laser.x + Laser.WIDTH // 2,
-                                laser.y, size=28))
                         hit = True
                         if not piercing:
                             break
