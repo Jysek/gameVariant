@@ -1,2 +1,16 @@
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+.env
+*.so
+.DS_Store
+Thumbs.db
+save_data.json

@@ -1,33 +1,37 @@
 """
-Laser and AngledLaser classes -- game projectiles.
+Classi Laser e AngledLaser -- proiettili di gioco.
 
-Lasers can be fired by the player (upward) or by enemies/bosses (downward).
-Sprites are pre-scaled in Assets.load() to avoid expensive per-frame scaling.
+I laser possono essere sparati dal giocatore (verso l'alto) o dai
+nemici/boss (verso il basso). Gli sprite sono pre-scalati in
+Assets.load() per evitare scaling costoso ad ogni frame.
 
-Supports horizontal velocity (``vx``) for advanced boss firing patterns.
-Enemy lasers use the sprite image oriented downward; if no sprite is
-available, a minimal colored rectangle is drawn as fallback.
+Supporta velocità orizzontale (``vx``) per pattern di sparo avanzati dei boss.
+I laser nemici usano lo sprite orientato verso il basso; se non è
+disponibile uno sprite, viene disegnato un piccolo rettangolo colorato
+come fallback.
+
+Le hitbox dei laser sono state rimosse: le collisioni usano
+direttamente il rettangolo dello sprite senza restringimenti.
 """
 
 import math
 import pygame
 
 from core.constants import SCREEN_WIDTH, SCREEN_HEIGHT, CYAN
-from core.assets import Assets
 
 
 class Laser:
-    """Straight laser projectile (player or enemy).
+    """Proiettile laser rettilineo (giocatore o nemico).
 
-    Supports optional horizontal velocity for diagonal boss patterns.
+    Supporta velocità orizzontale opzionale per pattern diagonali dei boss.
 
     Args:
-        x, y:     Initial position (top-left corner).
-        speed:    Vertical speed (negative = up, positive = down).
-        color:    Fallback color if sprite is unavailable.
-        is_enemy: True if this laser belongs to an enemy/boss.
-        sprite:   Pre-loaded Pygame Surface (optional).
-        vx:       Horizontal velocity (0 = straight). Used for boss patterns.
+        x, y:     Posizione iniziale (angolo in alto a sinistra).
+        speed:    Velocità verticale (negativa = su, positiva = giù).
+        color:    Colore fallback se lo sprite non è disponibile.
+        is_enemy: True se questo laser appartiene a un nemico/boss.
+        sprite:   Surface Pygame pre-caricata (opzionale).
+        vx:       Velocità orizzontale (0 = dritto). Usato per pattern boss.
     """
 
     WIDTH  = 20
@@ -46,15 +50,17 @@ class Laser:
         self.is_enemy = is_enemy
         self.active = True
 
+        # Assegna lo sprite: priorità parametro > sprite nemico di default > None
         if sprite:
             self.image = sprite
         elif is_enemy:
+            from core.assets import Assets
             self.image = Assets.enemy_laser_sprite_scaled
         else:
             self.image = None
 
     def update(self) -> None:
-        """Move the laser along its trajectory; deactivate if off-screen."""
+        """Muove il laser lungo la sua traiettoria; disattiva se fuori schermo."""
         self.y += self.speed
         self.x += self.vx
         margin = 50
@@ -64,15 +70,15 @@ class Laser:
             self.active = False
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Draw the laser using its pre-scaled sprite.
+        """Disegna il laser usando il suo sprite pre-scalato.
 
-        If no sprite is available, draws a small colored rectangle
-        as a minimal fallback.
+        Se non è disponibile uno sprite, disegna un piccolo rettangolo
+        colorato come fallback minimale. Nessuna hitbox visiva.
         """
         if self.image:
             surface.blit(self.image, (int(self.x), int(self.y)))
         else:
-            # Minimal colored rectangle fallback (no glow)
+            # Rettangolo colorato fallback minimale (senza glow)
             r, g, b = self.color[:3]
             pygame.draw.rect(
                 surface, (r, g, b),
@@ -80,30 +86,28 @@ class Laser:
             )
 
     def get_rect(self) -> pygame.Rect:
-        """Return the collision hitbox of this laser.
+        """Restituisce il rettangolo di collisione del laser.
 
-        The hitbox is slightly narrower than the visual for fairness.
+        Usa il rettangolo completo dello sprite senza restringimenti
+        (le hitbox visive dei laser sono state rimosse).
         """
-        shrink_x = 4
         return pygame.Rect(
-            self.x + shrink_x,
-            self.y,
-            self.WIDTH - shrink_x * 2,
-            self.HEIGHT,
+            int(self.x), int(self.y),
+            self.WIDTH, self.HEIGHT,
         )
 
 
 class AngledLaser(Laser):
-    """Angled laser used by the triple-shot weapon power-up.
+    """Laser angolato usato dal power-up sparo triplo.
 
-    Moves along a diagonal trajectory defined by the angle.
+    Si muove lungo una traiettoria diagonale definita dall'angolo.
 
     Args:
-        x, y:       Initial position.
-        base_speed: Base laser speed.
-        angle_deg:  Angle in degrees from vertical.
-        color:      Fallback color.
-        sprite:     Pre-loaded surface (optional).
+        x, y:       Posizione iniziale.
+        base_speed: Velocità laser di base.
+        angle_deg:  Angolo in gradi dalla verticale.
+        color:      Colore fallback.
+        sprite:     Surface pre-caricata (opzionale).
     """
 
     def __init__(
@@ -117,7 +121,7 @@ class AngledLaser(Laser):
         self.angle_deg = angle_deg
 
     def update(self) -> None:
-        """Move the laser along its angled trajectory."""
+        """Muove il laser lungo la sua traiettoria angolata."""
         self.x += self.vx
         self.y += self.vy
         margin = 50
@@ -127,11 +131,10 @@ class AngledLaser(Laser):
             self.active = False
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Draw the angled laser using its sprite or a minimal fallback."""
+        """Disegna il laser angolato usando il suo sprite o un fallback minimale."""
         if self.image:
             surface.blit(self.image, (int(self.x), int(self.y)))
         else:
-            # Minimal colored rectangle fallback (no glow)
             r, g, b = self.color[:3]
             pygame.draw.rect(
                 surface, (r, g, b),

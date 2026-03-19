@@ -1,27 +1,30 @@
 """
-FormationGroup v6 -- movement, firing, anti-overlap, and mixed enemy types.
+FormationGroup v7 -- movimento, sparo, anti-sovrapposizione e tipi misti.
 
-Each ``FormationGroup`` contains a set of enemies that move as a unit.
-Formations have mixed enemy types: weaker enemies (scout) in front rows
-and stronger enemies (elite, bomber) in back rows.
+Ogni ``FormationGroup`` contiene un insieme di nemici che si muovono come
+un'unità. Le formazioni hanno tipi misti: nemici deboli (scout) nelle righe
+frontali e nemici forti (elite, bomber) nelle righe posteriori.
 """
 
 import random
 import pygame
 
-from core.constants import SCREEN_WIDTH, SCREEN_HEIGHT, ENEMY_TYPE_STATS
+from core.constants import (
+    SCREEN_WIDTH, SCREEN_HEIGHT, ENEMY_TYPE_STATS,
+    ENEMY_SHOOT_INTERVALS,
+)
 from entities.enemy import Enemy
 from entities.formations import Slot
 
 # ---------------------------------------------------------------------------
-# Group descent parameters
+# Parametri discesa gruppo
 # ---------------------------------------------------------------------------
-DROP_AMOUNT   = 22  # pixels per descent step
-DROP_INTERVAL = 75  # frames between steps
+DROP_AMOUNT   = 22  # pixel per step di discesa
+DROP_INTERVAL = 75  # frame tra gli step
 
 # ---------------------------------------------------------------------------
-# Enemy type mapping per row.
-# Row 0 (front) = scout/fighter, higher rows = bomber/elite.
+# Mappa tipo nemico per riga.
+# Riga 0 (fronte) = scout/fighter, righe superiori = bomber/elite.
 # ---------------------------------------------------------------------------
 _ROW_TYPE_MAP: dict[int, list[str]] = {
     0: ["scout"],
@@ -30,7 +33,7 @@ _ROW_TYPE_MAP: dict[int, list[str]] = {
     3: ["bomber", "elite"],
 }
 
-# Available types per difficulty level
+# Tipi disponibili per livello di difficoltà
 _DIFFICULTY_TYPES: list[list[str]] = [
     ["scout"],
     ["scout", "fighter"],
@@ -38,23 +41,23 @@ _DIFFICULTY_TYPES: list[list[str]] = [
     ["scout", "fighter", "bomber", "elite"],
 ]
 
-# Score and HP per enemy type (from constants)
+# Punteggio e HP per tipo nemico (dalle costanti)
 _SCORE: dict[str, int] = {k: v["score"] for k, v in ENEMY_TYPE_STATS.items()}
 _HP:    dict[str, int] = {k: v["hp"] for k, v in ENEMY_TYPE_STATS.items()}
 
 
 def _pick_enemy_type(row: int, difficulty: int) -> str:
-    """Choose an enemy type based on row position and difficulty.
+    """Sceglie un tipo nemico in base alla posizione nella riga e alla difficoltà.
 
-    Weaker enemies in front, stronger ones in back. Difficulty controls
-    which types are available.
+    Nemici deboli davanti, nemici forti dietro. La difficoltà controlla
+    quali tipi sono disponibili.
 
     Args:
-        row:        Row index in the formation (0 = front/lowest).
-        difficulty: Current difficulty level.
+        row:        Indice riga nella formazione (0 = fronte/più basso).
+        difficulty: Livello di difficoltà corrente.
 
     Returns:
-        Enemy type string.
+        Stringa tipo nemico.
     """
     diff_idx = min(difficulty, len(_DIFFICULTY_TYPES) - 1)
     available = _DIFFICULTY_TYPES[diff_idx]
@@ -68,16 +71,16 @@ def _pick_enemy_type(row: int, difficulty: int) -> str:
 
 
 class FormationGroup:
-    """Group of enemies in formation that move as a unit.
+    """Gruppo di nemici in formazione che si muovono come unità.
 
-    Formations have mixed types: weaker enemies (scout) in front rows
-    and stronger enemies (bomber, elite) in back rows.
+    Le formazioni hanno tipi misti: nemici deboli (scout) nelle righe
+    frontali e nemici forti (bomber, elite) nelle righe posteriori.
 
     Args:
-        spawn_data:     List of dicts with 'x', 'y', 'slot' for each enemy.
-        speed_mult:     Speed multiplier from difficulty.
-        formation_name: Name of the formation pattern.
-        difficulty:     Current difficulty level.
+        spawn_data:     Lista di dict con 'x', 'y', 'slot' per ogni nemico.
+        speed_mult:     Moltiplicatore velocità dalla difficoltà.
+        formation_name: Nome del pattern di formazione.
+        difficulty:     Livello di difficoltà corrente.
     """
 
     def __init__(
@@ -86,12 +89,11 @@ class FormationGroup:
     ):
         self.formation_name = formation_name
 
-        # Determine rows present in the formation
+        # Determina le righe presenti nella formazione
         max_row = max((d["slot"].row for d in spawn_data), default=0)
 
-        # Create enemies with mixed types based on row
+        # Crea nemici con tipi misti basati sulla riga
         self.enemies: list[Enemy] = []
-        self.score_per_kill = 1
 
         for d in spawn_data:
             slot: Slot = d["slot"]
@@ -103,70 +105,70 @@ class FormationGroup:
             enemy.slot = slot
             self.enemies.append(enemy)
 
-        # Group horizontal speed (scaled by difficulty)
+        # Velocità orizzontale del gruppo (scalata dalla difficoltà)
         base_speed = random.choice([-1.0, -0.7, 0.7, 1.0]) * speed_mult
         self.dx = base_speed
 
-        # Periodic descent timer
+        # Timer discesa periodica
         self._drop_timer = 0
 
-        # Cached alive enemies list
+        # Cache lista nemici vivi
         self._cached_alive: list[Enemy] = list(self.enemies)
 
-        # Pending lasers from this frame
+        # Laser pendenti da questo frame
         self.pending_lasers: list = []
 
     # ------------------------------------------------------------------
-    # Quick-access properties
+    # Proprietà di accesso rapido
     # ------------------------------------------------------------------
 
     @property
     def alive_enemies(self) -> list[Enemy]:
-        """Return list of currently alive enemies (cached)."""
+        """Restituisce lista dei nemici attualmente vivi (cached)."""
         return self._cached_alive
 
     def _refresh_alive_cache(self) -> None:
-        """Rebuild the alive enemies cache."""
+        """Ricostruisce la cache dei nemici vivi."""
         self._cached_alive = [e for e in self.enemies if e.alive]
 
     @property
     def is_empty(self) -> bool:
-        """Check if all enemies in this group are dead."""
+        """Controlla se tutti i nemici in questo gruppo sono morti."""
         return all(not e.alive for e in self.enemies)
 
     @property
     def left_edge(self) -> float:
-        """Return the leftmost X position of alive enemies."""
+        """Restituisce la posizione X più a sinistra dei nemici vivi."""
         alive = self.alive_enemies
         return min(e.x for e in alive) if alive else 0.0
 
     @property
     def right_edge(self) -> float:
-        """Return the rightmost X position of alive enemies."""
+        """Restituisce la posizione X più a destra dei nemici vivi."""
         alive = self.alive_enemies
         return max(e.x + e.width for e in alive) if alive else 0.0
 
     @property
     def bottom_edge(self) -> float:
-        """Return the lowest Y position of alive enemies."""
+        """Restituisce la posizione Y più bassa dei nemici vivi."""
         alive = self.alive_enemies
         return max(e.y + e.height for e in alive) if alive else 0.0
 
     @property
     def top_edge(self) -> float:
-        """Return the highest Y position of alive enemies."""
+        """Restituisce la posizione Y più alta dei nemici vivi."""
         alive = self.alive_enemies
         return min(e.y for e in alive) if alive else 0.0
 
     # ------------------------------------------------------------------
-    # UPDATE
+    # AGGIORNAMENTO
     # ------------------------------------------------------------------
 
     def update(self) -> bool:
-        """Update the group: movement, firing, and edge checking.
+        """Aggiorna il gruppo: movimento, sparo e controllo bordi.
 
         Returns:
-            True if the bottom edge has reached the screen bottom.
+            True se il bordo inferiore ha raggiunto il fondo dello schermo.
         """
         self.pending_lasers.clear()
         self._refresh_alive_cache()
@@ -174,7 +176,7 @@ class FormationGroup:
         if not self._cached_alive:
             return False
 
-        # Horizontal movement with bounce
+        # Movimento orizzontale con rimbalzo
         if self.dx < 0 and self.left_edge + self.dx < 10:
             self.dx = abs(self.dx)
         elif self.dx > 0 and self.right_edge + self.dx > SCREEN_WIDTH - 10:
@@ -183,58 +185,53 @@ class FormationGroup:
         for e in self.alive_enemies:
             e.x += self.dx
 
-        # Periodic descent
+        # Discesa periodica
         self._drop_timer += 1
         if self._drop_timer >= DROP_INTERVAL:
             self._drop_timer = 0
             for e in self.alive_enemies:
                 e.y += DROP_AMOUNT
 
-        # Individual enemy firing
+        # Sparo individuale dei nemici (usa intervalli centralizzati)
         for e in self.alive_enemies:
             e.shoot_timer += 1
             if e.shoot_timer >= e.shoot_interval:
                 e.shoot_timer = 0
-                intervals: dict[str, tuple[int, int]] = {
-                    "scout":   (70, 160),
-                    "fighter": (100, 200),
-                    "bomber":  (160, 320),
-                    "elite":   (80, 180),
-                }
-                lo, hi = intervals.get(e.enemy_type, (100, 200))
+                lo, hi = ENEMY_SHOOT_INTERVALS.get(
+                    e.enemy_type, (100, 200))
                 e.shoot_interval = random.randint(lo, hi)
                 self.pending_lasers.extend(e.build_lasers())
 
         return self.bottom_edge >= SCREEN_HEIGHT
 
     # ------------------------------------------------------------------
-    # DRAW
+    # DISEGNO
     # ------------------------------------------------------------------
 
     def draw(self, surf: pygame.Surface) -> None:
-        """Draw all alive enemies in this group.
+        """Disegna tutti i nemici vivi in questo gruppo.
 
         Args:
-            surf: Target surface.
+            surf: Surface di destinazione.
         """
         for e in self.alive_enemies:
             e.draw(surf)
 
     # ------------------------------------------------------------------
-    # COLLISION HELPERS
+    # HELPER DI COLLISIONE
     # ------------------------------------------------------------------
 
     def get_alive_rects(self) -> list[tuple[pygame.Rect, Enemy]]:
-        """Return (hitbox, enemy) pairs for all alive enemies."""
+        """Restituisce coppie (hitbox, nemico) per tutti i nemici vivi."""
         return [(e.get_rect(), e) for e in self.alive_enemies]
 
     def get_score_for_enemy(self, enemy: Enemy) -> int:
-        """Return the score value for killing a specific enemy.
+        """Restituisce il valore in punteggio per l'uccisione di un nemico.
 
         Args:
-            enemy: The killed enemy.
+            enemy: Il nemico ucciso.
 
         Returns:
-            Score value based on enemy type.
+            Valore punteggio basato sul tipo nemico.
         """
         return _SCORE.get(enemy.enemy_type, 1)

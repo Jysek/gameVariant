@@ -1,1 +1,1 @@
-"""Core module -- Constants, assets, sounds, and save management."""
+"""Modulo core -- Costanti, asset, suoni e gestione salvataggi."""

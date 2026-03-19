@@ -1,8 +1,8 @@
 """
-Save data management for game progress.
+Gestione dati di salvataggio per il progresso di gioco.
 
-Loads/saves records, ship unlocks, and top scores to a JSON file.
-Supports 5 ships with progressive score-based unlocking.
+Carica/salva record, sblocchi navi e punteggi migliori in un file JSON.
+Supporta 5 navi con sblocco progressivo basato sul punteggio.
 """
 
 import json
@@ -12,9 +12,10 @@ from core.constants import NUM_PLAYER_SHIPS, SHIP_UNLOCK_SCORES
 
 
 def _get_save_path() -> str:
-    """Return the absolute path to the save data file."""
+    """Restituisce il percorso assoluto del file dati di salvataggio."""
     try:
-        base_dir = os.path.dirname(os.path.abspath(os.path.join(__file__, os.pardir)))
+        base_dir = os.path.dirname(
+            os.path.abspath(os.path.join(__file__, os.pardir)))
     except Exception:
         base_dir = os.getcwd()
     return os.path.join(base_dir, "save_data.json")
@@ -22,7 +23,7 @@ def _get_save_path() -> str:
 
 SAVE_FILE = _get_save_path()
 
-# Default: ships with unlock_score == 0 are unlocked by default
+# Default: le navi con unlock_score == 0 sono sbloccate di default
 _DEFAULT_UNLOCKED = [score == 0 for score in SHIP_UNLOCK_SCORES]
 
 _DEFAULT_DATA = {
@@ -36,25 +37,25 @@ _DEFAULT_DATA = {
 
 
 def load_save_data() -> dict:
-    """Load save data from disk.
+    """Carica i dati di salvataggio dal disco.
 
-    Automatically handles migration from previous versions
-    (10/12 ships -> 5 ships).
+    Gestisce automaticamente la migrazione da versioni precedenti
+    (10/12 navi -> 5 navi).
 
     Returns:
-        dict: Save data with missing fields filled from defaults.
+        dict: Dati di salvataggio con campi mancanti riempiti dai default.
     """
     try:
         if os.path.exists(SAVE_FILE):
             with open(SAVE_FILE, "r") as f:
                 data = json.load(f)
 
-                # Merge with defaults for missing fields
+                # Unisci con i default per campi mancanti
                 for key, default_value in _DEFAULT_DATA.items():
                     if key not in data:
                         data[key] = default_value
 
-                # Migration: handle transition to 5 ships
+                # Migrazione: gestisci transizione a 5 navi
                 ships = data.get("unlocked_ships", [])
                 if len(ships) != NUM_PLAYER_SHIPS:
                     new_ships = []
@@ -62,10 +63,11 @@ def load_save_data() -> dict:
                         if i < len(ships) and ships[i]:
                             new_ships.append(True)
                         else:
-                            new_ships.append(data["high_score"] >= SHIP_UNLOCK_SCORES[i])
+                            new_ships.append(
+                                data["high_score"] >= SHIP_UNLOCK_SCORES[i])
                     data["unlocked_ships"] = new_ships
 
-                # Check unlocks based on current high score
+                # Controlla sblocchi basati sul punteggio corrente
                 check_unlocks(data)
                 return data
     except (json.JSONDecodeError, IOError):
@@ -74,10 +76,10 @@ def load_save_data() -> dict:
 
 
 def save_data(data: dict) -> None:
-    """Persist game data to disk as JSON.
+    """Persiste i dati di gioco su disco come JSON.
 
     Args:
-        data: The save data dictionary to write.
+        data: Il dizionario dati di salvataggio da scrivere.
     """
     try:
         with open(SAVE_FILE, "w") as f:
@@ -87,19 +89,19 @@ def save_data(data: dict) -> None:
 
 
 def check_unlocks(data: dict) -> list[int]:
-    """Check and unlock ships reachable with the current high score.
+    """Controlla e sblocca le navi raggiungibili con il punteggio corrente.
 
     Args:
-        data: Save data dictionary (modified in-place).
+        data: Dizionario dati di salvataggio (modificato in-place).
 
     Returns:
-        List of indices of newly unlocked ships.
+        Lista di indici delle navi appena sbloccate.
     """
     newly_unlocked: list[int] = []
     high = data.get("high_score", 0)
     ships = data.get("unlocked_ships", list(_DEFAULT_UNLOCKED))
 
-    # Ensure the list has the correct length
+    # Assicura che la lista abbia la lunghezza corretta
     while len(ships) < NUM_PLAYER_SHIPS:
         ships.append(False)
     ships = ships[:NUM_PLAYER_SHIPS]

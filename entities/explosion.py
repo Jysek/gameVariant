@@ -1,8 +1,8 @@
 """
-Explosion -- animated GIF explosion effect.
+Esplosione -- effetto esplosione animato da GIF.
 
-The explosion is centered on (x, y) and plays through all frames
-of explosionGif.gif. It automatically deactivates after the last frame.
+L'esplosione è centrata su (x, y) e riproduce tutti i frame di
+explosionGif.gif. Si disattiva automaticamente dopo l'ultimo frame.
 """
 
 import pygame
@@ -12,11 +12,11 @@ from core.assets import Assets
 
 
 class Explosion:
-    """Animated explosion effect using the explosionGif.gif frames.
+    """Effetto esplosione animato usando i frame di explosionGif.gif.
 
     Args:
-        x, y: Center of the explosion (pixels).
-        size: Pixel dimension (default EXPLOSION_SIZE = 64).
+        x, y: Centro dell'esplosione (pixel).
+        size: Dimensione in pixel (default EXPLOSION_SIZE = 64).
     """
 
     def __init__(self, x: float, y: float, size: int = EXPLOSION_SIZE):
@@ -25,7 +25,7 @@ class Explosion:
         self.size = size
         self.active = True
 
-        # Use pre-scaled frames if size matches, otherwise scale on the fly
+        # Usa frame pre-scalati se la dimensione corrisponde, altrimenti scala al volo
         if size == EXPLOSION_SIZE:
             self.frames = Assets.explosion_frames
         else:
@@ -35,11 +35,11 @@ class Explosion:
             ]
 
         self.frame_index = 0
-        self.frame_delay = 2  # game ticks per GIF frame
+        self.frame_delay = 2  # tick di gioco per frame GIF
         self.frame_timer = 0
 
     def update(self) -> None:
-        """Advance the animation by one tick; deactivate at the end."""
+        """Avanza l'animazione di un tick; disattiva alla fine."""
         self.frame_timer += 1
         if self.frame_timer >= self.frame_delay:
             self.frame_timer = 0
@@ -48,12 +48,12 @@ class Explosion:
                 self.active = False
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Draw the current frame centered on (x, y).
+        """Disegna il frame corrente centrato su (x, y).
 
         Args:
-            surface: Target surface.
+            surface: Surface di destinazione.
         """
-        if not self.active:
+        if not self.active or self.frame_index >= len(self.frames):
             return
         frame = self.frames[self.frame_index]
         surface.blit(
