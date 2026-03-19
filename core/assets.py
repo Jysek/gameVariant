@@ -7,11 +7,15 @@ are loaded and pre-scaled once in ``Assets.load()``.
 Animated GIFs (bosses, explosions, player ships, enemies) are decomposed
 into individual frames via Pillow (PIL) and converted to Pygame Surfaces
 for real-time rendering.
+
+Laser sprites are cleaned of their semi-transparent glow halo during loading
+to prevent colored rectangles from appearing when lasers pass over HUD text.
 """
 
 import os
 import pygame
 from PIL import Image
+import numpy as np
 
 from core.constants import (
     ENEMY_W, ENEMY_H, ASTEROID_SIZE, CARRIER_SIZE,
@@ -54,6 +58,36 @@ def _base() -> str:
     return os.path.dirname(os.path.abspath(os.path.join(__file__, os.pardir)))
 
 
+# Alpha threshold for stripping glow halos from laser sprites.
+# Pixels with alpha <= this value are made fully transparent.
+_LASER_GLOW_ALPHA_THRESHOLD = 80
+
+
+def _strip_laser_glow(surf: pygame.Surface) -> pygame.Surface:
+    """Remove the semi-transparent glow halo from a laser sprite.
+
+    Laser PNGs have a large semi-transparent glow area that creates
+    visible colored rectangles when the sprite is drawn over HUD text.
+    This function sets all pixels below the alpha threshold to fully
+    transparent, keeping only the bright core of the laser.
+
+    Uses numpy for fast pixel manipulation.
+
+    Args:
+        surf: Source Pygame surface with alpha.
+
+    Returns:
+        New surface with the glow stripped.
+    """
+    w, h = surf.get_size()
+    # Get pixel data as a 3D numpy array (h, w, 4) for RGBA
+    arr = pygame.surfarray.pixels_alpha(surf)
+    # Set pixels with low alpha to fully transparent
+    arr[arr <= _LASER_GLOW_ALPHA_THRESHOLD] = 0
+    del arr  # Release the pixel lock
+    return surf
+
+
 def _gif_frames(path: str) -> list[pygame.Surface]:
     """Decompose an animated GIF into individual frames.
 
@@ -80,23 +114,26 @@ def _gif_frames(path: str) -> list[pygame.Surface]:
 def _gif_frames_remove_bg(
     path: str, bg: tuple[int, int, int], tolerance: int = 15
 ) -> list[pygame.Surface]:
-    """Like ``_gif_frames`` but removes a specific background color."""
+    """Like ``_gif_frames`` but removes a specific background color.
+
+    Uses numpy for significantly faster pixel processing.
+    """
     frames: list[pygame.Surface] = []
     gif = Image.open(path)
     for i in range(gif.n_frames):
         gif.seek(i)
         rgba = gif.convert("RGBA")
-        pixels = rgba.load()
-        w, h = rgba.size
-        for y in range(h):
-            for x in range(w):
-                r, g, b, a = pixels[x, y]
-                if (abs(r - bg[0]) < tolerance and
-                    abs(g - bg[1]) < tolerance and
-                    abs(b - bg[2]) < tolerance):
-                    pixels[x, y] = (0, 0, 0, 0)
-        data = rgba.tobytes()
-        surf = pygame.image.fromstring(data, rgba.size, "RGBA")
+        arr = np.array(rgba)
+        # Build a boolean mask for pixels matching the background color
+        mask = (
+            (np.abs(arr[:, :, 0].astype(int) - bg[0]) < tolerance)
+            & (np.abs(arr[:, :, 1].astype(int) - bg[1]) < tolerance)
+            & (np.abs(arr[:, :, 2].astype(int) - bg[2]) < tolerance)
+        )
+        arr[mask] = [0, 0, 0, 0]
+        cleaned = Image.fromarray(arr, "RGBA")
+        data = cleaned.tobytes()
+        surf = pygame.image.fromstring(data, cleaned.size, "RGBA")
         frames.append(surf)
     return frames
 
@@ -124,6 +161,8 @@ def _extract_ship_frames_from_gif(
 ) -> list[list[pygame.Surface]]:
     """Extract animated ships from a grid-layout GIF spritesheet.
 
+    Uses numpy for significantly faster background removal.
+
     Args:
         gif_path:   Path to the GIF file.
         row_bounds: List of (y_start, y_end) for each row.
@@ -148,17 +187,16 @@ def _extract_ship_frames_from_gif(
             cell_frames: list[pygame.Surface] = []
             for frame in raw_frames:
                 cell = frame.crop((cx1, ry1, cx2, ry2)).copy()
-                pixels = cell.load()
-                w, h = cell.size
-                for y in range(h):
-                    for x in range(w):
-                        r, g, b, a = pixels[x, y]
-                        if (abs(r - bg[0]) < tolerance and
-                            abs(g - bg[1]) < tolerance and
-                            abs(b - bg[2]) < tolerance):
-                            pixels[x, y] = (0, 0, 0, 0)
-                data = cell.tobytes()
-                surf = pygame.image.fromstring(data, cell.size, "RGBA")
+                arr = np.array(cell)
+                mask = (
+                    (np.abs(arr[:, :, 0].astype(int) - bg[0]) < tolerance)
+                    & (np.abs(arr[:, :, 1].astype(int) - bg[1]) < tolerance)
+                    & (np.abs(arr[:, :, 2].astype(int) - bg[2]) < tolerance)
+                )
+                arr[mask] = [0, 0, 0, 0]
+                cleaned = Image.fromarray(arr, "RGBA")
+                data = cleaned.tobytes()
+                surf = pygame.image.fromstring(data, cleaned.size, "RGBA")
                 cell_frames.append(surf)
             ships.append(cell_frames)
     return ships
@@ -172,6 +210,8 @@ def _extract_enemy_frames_from_gif(
     tolerance: int = 18,
 ) -> list[list[pygame.Surface]]:
     """Extract enemy ship frames from a GIF (one row, 4 columns).
+
+    Uses numpy for significantly faster background removal.
 
     Args:
         gif_path:   Path to the GIF file.
@@ -197,17 +237,16 @@ def _extract_enemy_frames_from_gif(
         cell_frames: list[pygame.Surface] = []
         for frame in raw_frames:
             cell = frame.crop((cx1, ry1, cx2, ry2)).copy()
-            pixels = cell.load()
-            w, h = cell.size
-            for y in range(h):
-                for x in range(w):
-                    r, g, b, a = pixels[x, y]
-                    if (abs(r - bg[0]) < tolerance and
-                        abs(g - bg[1]) < tolerance and
-                        abs(b - bg[2]) < tolerance):
-                        pixels[x, y] = (0, 0, 0, 0)
-            data = cell.tobytes()
-            surf = pygame.image.fromstring(data, cell.size, "RGBA")
+            arr = np.array(cell)
+            mask = (
+                (np.abs(arr[:, :, 0].astype(int) - bg[0]) < tolerance)
+                & (np.abs(arr[:, :, 1].astype(int) - bg[1]) < tolerance)
+                & (np.abs(arr[:, :, 2].astype(int) - bg[2]) < tolerance)
+            )
+            arr[mask] = [0, 0, 0, 0]
+            cleaned = Image.fromarray(arr, "RGBA")
+            data = cleaned.tobytes()
+            surf = pygame.image.fromstring(data, cleaned.size, "RGBA")
             cell_frames.append(surf)
         enemies.append(cell_frames)
     return enemies
@@ -265,11 +304,14 @@ class Assets:
             return pygame.transform.scale(surf, size) if size else surf
 
         def lz(name: str) -> pygame.Surface:
-            """Load and scale a laser sprite from the LaserSprites directory."""
-            return pygame.transform.scale(
-                pygame.image.load(os.path.join(laser_dir, name)).convert_alpha(),
-                (_LASER_W, _LASER_H),
-            )
+            """Load, strip glow, and scale a laser sprite.
+
+            Strips the semi-transparent glow halo before scaling to
+            prevent colored rectangles appearing over HUD text.
+            """
+            raw = pygame.image.load(os.path.join(laser_dir, name)).convert_alpha()
+            _strip_laser_glow(raw)
+            return pygame.transform.scale(raw, (_LASER_W, _LASER_H))
 
         # ==============================================================
         # PLAYER SHIPS (5 animated ships from navicelle.gif)

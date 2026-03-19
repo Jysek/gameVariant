@@ -120,6 +120,10 @@ class Player:
         # Engine trail visual particles
         self._engine_particles: list[dict] = []
 
+        # Cached shield surface (reused across frames)
+        self._shield_surf: pygame.Surface | None = None
+        self._shield_radius: int = 0
+
     # ========================================================================
     # UPDATE
     # ========================================================================
@@ -467,24 +471,34 @@ class Player:
             self._draw_shield(surface)
 
     def _draw_engine_trail(self, surface: pygame.Surface) -> None:
-        """Draw glowing engine trail particles.
+        """Draw glowing engine trail particles behind the ship.
+
+        Uses direct circle drawing instead of creating a Surface per particle,
+        which is significantly faster.
 
         Args:
             surface: Target surface.
         """
+        r, g, b = self.color
         for p in self._engine_particles:
             size = max(1, int(p["size"]))
             alpha = max(0, min(255, int(p["alpha"])))
-            s = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
-            r, g, b = self.color
-            pygame.draw.circle(s, (r, g, b, alpha), (size, size), size)
-            surface.blit(
-                s, (int(p["x"] - size), int(p["y"] - size)),
-                special_flags=pygame.BLEND_ADD,
+            if alpha < 30:
+                continue  # Skip nearly invisible particles
+            # Approximate glow by drawing with reduced color intensity
+            factor = alpha / 255.0
+            cr = min(255, int(r * factor))
+            cg = min(255, int(g * factor))
+            cb = min(255, int(b * factor))
+            pygame.draw.circle(
+                surface, (cr, cg, cb),
+                (int(p["x"]), int(p["y"])), size,
             )
 
     def _draw_shield(self, surface: pygame.Surface) -> None:
         """Draw the shield bubble and its remaining-time bar.
+
+        Reuses a cached shield surface and redraws only the dynamic parts.
 
         Args:
             surface: Target surface.
@@ -492,18 +506,23 @@ class Player:
         shield_alpha  = int(abs(math.sin(self.shield_timer * 0.1)) * 60) + 60
         shield_radius = max(self.width, self.height) // 2 + 10
 
-        shield_surf = pygame.Surface(
-            (shield_radius * 2, shield_radius * 2), pygame.SRCALPHA)
+        # Recreate shield surface only if radius changed
+        if self._shield_surf is None or self._shield_radius != shield_radius:
+            self._shield_radius = shield_radius
+            self._shield_surf = pygame.Surface(
+                (shield_radius * 2, shield_radius * 2), pygame.SRCALPHA)
+
+        self._shield_surf.fill((0, 0, 0, 0))
         pygame.draw.circle(
-            shield_surf, (0, 200, 255, shield_alpha),
+            self._shield_surf, (0, 200, 255, shield_alpha),
             (shield_radius, shield_radius), shield_radius, 3)
         pygame.draw.circle(
-            shield_surf, (0, 200, 255, shield_alpha // 3),
+            self._shield_surf, (0, 200, 255, shield_alpha // 3),
             (shield_radius, shield_radius), shield_radius - 3)
 
         cx = self.x + self.width // 2 - shield_radius
         cy = self.y + self.height // 2 - shield_radius
-        surface.blit(shield_surf, (int(cx), int(cy)))
+        surface.blit(self._shield_surf, (int(cx), int(cy)))
 
         # Shield time bar
         bar_w = self.width

@@ -186,15 +186,26 @@ class _Particle:
     def draw(self, surf: pygame.Surface, frames: list[pygame.Surface]) -> None:
         """Draw the particle using the trail spritesheet frame.
 
+        Uses direct blit with set_alpha for better performance
+        instead of scaling every frame.
+
         Args:
             surf:   Target surface.
             frames: Trail spritesheet frame list.
         """
         fi = min(int(self.frame), _N_FRAMES - 1)
         src = frames[fi]
+        alpha_val = max(0, min(255, int(self.alpha)))
+        if alpha_val < 20:
+            return  # Skip nearly invisible particles
         sz = max(2, int(_FW * self.sz))
-        scaled = pygame.transform.scale(src, (sz, sz))
-        scaled.set_alpha(max(0, min(255, int(self.alpha))))
+        # Only scale if size differs significantly from source
+        if abs(sz - _FW) > 2:
+            scaled = pygame.transform.scale(src, (sz, sz))
+        else:
+            scaled = src
+            sz = _FW
+        scaled.set_alpha(alpha_val)
         surf.blit(
             scaled,
             (int(self.x - sz // 2), int(self.y - sz // 2)),
@@ -253,16 +264,20 @@ class Asteroid:
         self.y += self.fall_speed
         self.angle = (self.angle + self.rot_speed) % 360
 
-        # Generate trail particles
+        # Generate trail particles (reduced count for performance)
         cx = self.x + self.width // 2
         cy = self.y + self.height // 2
-        for _ in range(random.randint(4, 6)):
+        for _ in range(random.randint(2, 4)):
             self.trail.append(_Particle(cx, cy))
 
-        # Update and prune dead particles
+        # Update and prune dead particles in-place
+        alive_count = 0
         for p in self.trail:
             p.update()
-        self.trail = [p for p in self.trail if p.alive]
+            if p.alive:
+                self.trail[alive_count] = p
+                alive_count += 1
+        del self.trail[alive_count:]
 
         # Deactivate when off bottom of screen
         if self.y > SCREEN_HEIGHT + 60:
