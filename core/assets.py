@@ -351,13 +351,22 @@ class Assets:
         def lz(name: str) -> pygame.Surface:
             """Carica, rimuovi glow e scala uno sprite laser.
 
-            Rimuove l'alone semi-trasparente prima di scalare per evitare
-            rettangoli colorati sopra il testo dell'HUD.
+            Rimuove l'alone semi-trasparente prima della scalatura, poi
+            elimina i pixel semi-trasparenti residui introdotti dalla
+            scalatura bilineare. Dopo lo scaling, qualsiasi pixel con
+            alpha < 255 viene reso completamente trasparente per
+            evitare rettangoli visibili su carrier, nemici e HUD.
             """
             raw = pygame.image.load(
                 os.path.join(laser_dir, name)).convert_alpha()
             _strip_laser_glow(raw)
-            return pygame.transform.scale(raw, (_LASER_W, _LASER_H))
+            scaled = pygame.transform.scale(raw, (_LASER_W, _LASER_H))
+            # Dopo la scalatura, rendi completamente trasparenti tutti
+            # i pixel semi-trasparenti residui (alpha < 255).
+            arr = pygame.surfarray.pixels_alpha(scaled)
+            arr[arr < 255] = 0
+            del arr
+            return scaled
 
         # ==============================================================
         # NAVI GIOCATORE (5 navi animate da navicelle.gif)
@@ -452,17 +461,33 @@ class Assets:
         # ==============================================================
         # VARIANTI BOSS (4 boss)
         # ==============================================================
+        # Alcune GIF boss (es. boss_3.gif) hanno uno sfondo scuro
+        # opaco (16,16,20) che crea rettangoli visibili durante il
+        # rendering. Rimuoviamo lo sfondo scuro quasi-nero e lo
+        # sfondo bianco per ottenere la trasparenza corretta.
         boss_files = ["boss.gif", "boss_1.gif", "boss_2.gif", "boss_3.gif"]
+        _boss_bg_colors = [
+            (0, 0, 0),        # boss.gif: sfondo nero
+            (255, 255, 255),  # boss_1.gif: sfondo bianco
+            (0, 0, 0),        # boss_2.gif: sfondo nero
+            (16, 16, 20),     # boss_3.gif: sfondo scuro quasi-nero
+        ]
         cls.boss_variant_frames = []
-        for bf in boss_files:
+        for bf, bg_color in zip(boss_files, _boss_bg_colors):
             path = os.path.join(bosses_dir, bf)
-            cls.boss_variant_frames.append(_gif_frames(path))
+            cls.boss_variant_frames.append(
+                _gif_frames_remove_bg(path, bg=bg_color, tolerance=20))
 
         # ==============================================================
-        # ESPLOSIONI (GIF animata)
+        # ESPLOSIONI (GIF animata, sfondo bianco rimosso)
         # ==============================================================
-        cls.explosion_frames_raw = _gif_frames(
-            os.path.join(effects_dir, "explosionGif.gif"))
+        # La GIF esplosione usa bianco (255,255,255) come colore di sfondo
+        # trasparente. _gif_frames_remove_bg elimina i pixel di sfondo
+        # residui che possono apparire come rettangoli bianchi durante
+        # l'animazione, specialmente nei frame intermedi.
+        cls.explosion_frames_raw = _gif_frames_remove_bg(
+            os.path.join(effects_dir, "explosionGif.gif"),
+            bg=(255, 255, 255), tolerance=8)
         cls.explosion_frames = [
             pygame.transform.scale(f, (EXPLOSION_SIZE, EXPLOSION_SIZE))
             for f in cls.explosion_frames_raw
