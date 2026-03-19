@@ -1,19 +1,19 @@
 """
-Costanti globali del gioco.
+Global game constants.
 
-Contiene tutte le costanti condivise tra i moduli: dimensioni schermo,
-colori, dimensioni sprite, tipi di power-up e parametri di difficolta'.
+Contains all shared constants across modules: screen dimensions,
+colors, sprite sizes, power-up types, and difficulty parameters.
 """
 
 # ============================================================================
-# SCHERMO E RENDERING
+# SCREEN & RENDERING
 # ============================================================================
 SCREEN_WIDTH = 800
 SCREEN_HEIGHT = 600
 FPS = 60
 
 # ============================================================================
-# COLORI (R, G, B)
+# COLORS (R, G, B)
 # ============================================================================
 BLACK      = (0, 0, 0)
 WHITE      = (255, 255, 255)
@@ -30,33 +30,33 @@ STAR_WHITE = (200, 200, 220)
 GOLD       = (255, 215, 0)
 
 # ============================================================================
-# DIMENSIONI SPRITE (pixel)
+# SPRITE DIMENSIONS (pixels)
 # ============================================================================
-PLAYER_W         = 60
-PLAYER_H         = 60
-ENEMY_W          = 60
-ENEMY_H          = 60
-ASTEROID_SIZE    = 60
-CARRIER_SIZE     = 55
+PLAYER_W          = 60
+PLAYER_H          = 60
+ENEMY_W           = 60
+ENEMY_H           = 60
+ASTEROID_SIZE     = 60
+CARRIER_SIZE      = 55
 POWERUP_ITEM_SIZE = 35
-EXPLOSION_SIZE   = 64
+EXPLOSION_SIZE    = 64
 
-# Alias retrocompatibile usato internamente nelle formazioni
+# Backwards-compatible alias used internally by formations
 ENEMY_SIZE = ENEMY_W
 
 # ============================================================================
-# NAVICELLE GIOCATORE -- 5 navi giocabili
+# PLAYER SHIPS -- 5 playable ships
 # ============================================================================
-# 5 navi selezionate dal spritesheet navicelle.gif.
-# Le ultime 2 (indici 3 e 4) hanno il doppio cannone.
+# 5 ships selected from the navicelle.gif spritesheet.
+# The last 2 (indices 3 and 4) have dual cannons.
 NUM_PLAYER_SHIPS = 5
 
 SHIP_NAMES = [
-    "Viper",      # 0 - Agile, bilanciata
-    "Phoenix",    # 1 - Resistente, lenta
-    "Striker",    # 2 - Veloce, fragile
-    "Nova",       # 3 - Doppio cannone, tattica
-    "Zenith",     # 4 - Doppio cannone, distruttrice
+    "Viper",      # 0 - Agile, balanced
+    "Phoenix",    # 1 - Tanky, slow
+    "Striker",    # 2 - Fast, fragile
+    "Nova",       # 3 - Dual cannon, tactical
+    "Zenith",     # 4 - Dual cannon, destroyer
 ]
 
 SHIP_DESCRIPTIONS = [
@@ -67,45 +67,44 @@ SHIP_DESCRIPTIONS = [
     "Distruttrice suprema",
 ]
 
-# Colori associati ad ogni nave (usati per laser e HUD)
+# Color associated with each ship (used for lasers and HUD)
 SHIP_COLORS = [
-    GREEN,                # Viper
-    MAGENTA,              # Phoenix
-    ORANGE,               # Striker
-    CYAN,                 # Nova
-    GOLD,                 # Zenith
+    GREEN,    # Viper
+    MAGENTA,  # Phoenix
+    ORANGE,   # Striker
+    CYAN,     # Nova
+    GOLD,     # Zenith
 ]
 
-# Punteggi minimi per sbloccare ogni nave (0 = sbloccata di default)
-# Progressione: 0, 200, 500, 1000, 2000
+# Minimum score required to unlock each ship (0 = unlocked by default)
 SHIP_UNLOCK_SCORES = [0, 200, 500, 1000, 2000]
 
-# Flag doppio cannone: True per le ultime 2 navi (Nova e Zenith)
+# Dual cannon flag: True for the last 2 ships (Nova and Zenith)
 SHIP_DOUBLE_CANNON = [False, False, False, True, True]
 
 # ============================================================================
-# STATISTICHE PER NAVE (rendono ogni navicella unica)
+# SHIP STATS (makes each ship unique)
 # ============================================================================
-# Formato: {speed, fire_rate, damage, special}
-#   speed:     moltiplicatore velocita' base (1.0 = normale)
-#   fire_rate: moltiplicatore cooldown sparo (< 1.0 = spara piu' veloce)
-#   damage:    danno per colpo (1 = normale, 2 = doppio)
-#   special:   abilita' speciale unica della nave
+# Format: {speed, fire_rate, damage, special}
+#   speed:     base speed multiplier (1.0 = normal)
+#   fire_rate: shot cooldown multiplier (< 1.0 = fires faster)
+#   damage:    damage per hit (1 = normal, 2 = double)
+#   special:   unique special ability for this ship
 SHIP_STATS = [
-    # Viper: bilanciata, nessun eccesso, buona per imparare
-    {"speed": 1.0,  "fire_rate": 1.0,  "damage": 1, "special": "none"},
-    # Phoenix: lenta ma resistente, danno alto, rateo lento
-    {"speed": 0.8,  "fire_rate": 1.3,  "damage": 2, "special": "regen"},
-    # Striker: velocissima, spara veloce, danno base
-    {"speed": 1.4,  "fire_rate": 0.6,  "damage": 1, "special": "piercing"},
-    # Nova: doppio cannone, buona velocita', danno standard
-    {"speed": 1.1,  "fire_rate": 0.85, "damage": 1, "special": "emp"},
-    # Zenith: doppio cannone devastante, lenta, danno doppio
-    {"speed": 0.9,  "fire_rate": 1.0,  "damage": 2, "special": "overdrive"},
+    # Viper: balanced, no extremes, good for learning
+    {"speed": 1.0, "fire_rate": 1.0, "damage": 1, "special": "none"},
+    # Phoenix: slow but tanky, high damage, slow fire rate
+    {"speed": 0.8, "fire_rate": 1.3, "damage": 2, "special": "regen"},
+    # Striker: very fast, rapid fire, base damage
+    {"speed": 1.4, "fire_rate": 0.6, "damage": 1, "special": "piercing"},
+    # Nova: dual cannon, good speed, standard damage
+    {"speed": 1.1, "fire_rate": 0.85, "damage": 1, "special": "emp"},
+    # Zenith: devastating dual cannon, slow, double damage
+    {"speed": 0.9, "fire_rate": 1.0, "damage": 2, "special": "overdrive"},
 ]
 
 # ============================================================================
-# TIPI DI POWER-UP
+# POWER-UP TYPES
 # ============================================================================
 POWERUP_TYPES = ["vita", "scudo", "velocita", "arma", "bomba"]
 
@@ -118,20 +117,19 @@ POWERUP_COLORS = {
 }
 
 # ============================================================================
-# BOSS VARIANTI
+# BOSS VARIANTS (4 bosses, boss_4 removed)
 # ============================================================================
-NUM_BOSS_VARIANTS = 5  # boss.gif, boss_1.gif, boss_2.gif, boss_3.gif, boss_4.png
+NUM_BOSS_VARIANTS = 4
 
 BOSS_NAMES = [
-    "Titano",      # Classic
-    "Furia",       # Burst
-    "Ventaglio",   # Fan
-    "Vortice",     # Spiral
-    "Devastatore", # Shotgun
+    "Titano",      # Classic rotating cannons
+    "Furia",       # Burst attacks
+    "Ventaglio",   # Fan waves
+    "Vortice",     # Spiral pattern
 ]
 
 # ============================================================================
-# TIPI DI NEMICO (statistiche)
+# ENEMY TYPES (stats)
 # ============================================================================
 ENEMY_TYPE_STATS = {
     "scout":   {"hp": 1, "score": 1,  "speed": 6, "color": "red"},
@@ -141,7 +139,7 @@ ENEMY_TYPE_STATS = {
 }
 
 # ============================================================================
-# DIFFICOLTA' PROGRESSIVA
+# PROGRESSIVE DIFFICULTY
 # ============================================================================
 DIFFICULTY_INTERVAL    = 30
 DIFFICULTY_SPEED_SCALE = 1.12
@@ -150,7 +148,7 @@ DIFFICULTY_MAX_LEVEL   = 10
 # ============================================================================
 # COMBO SYSTEM
 # ============================================================================
-COMBO_TIMEOUT_FRAMES = 150
+COMBO_TIMEOUT_FRAMES  = 150
 COMBO_MULT_THRESHOLDS = [3, 6, 10, 15, 25]
 COMBO_SCORE_BONUS     = [0.5, 1.0, 1.5, 2.0, 3.0]
 
@@ -167,12 +165,12 @@ SHAKE_INTENSITY_HEAVY  = 10
 GRACE_PERIOD_FRAMES = 180
 
 # ============================================================================
-# SLOW MOTION (nuovo)
+# SLOW MOTION
 # ============================================================================
-SLOW_MO_DURATION = 90       # frame di slow motion dopo boss kill
-SLOW_MO_FACTOR   = 0.4      # fattore velocita' durante slow-mo
+SLOW_MO_DURATION = 90   # frames of slow motion after boss kill
+SLOW_MO_FACTOR   = 0.4  # speed factor during slow-mo
 
 # ============================================================================
-# SCORE MULTIPLIER STREAK (nuovo)
+# SCORE MULTIPLIER STREAK
 # ============================================================================
-STREAK_DECAY_FRAMES = 300   # frame prima che lo streak decada
+STREAK_DECAY_FRAMES = 300  # frames before streak decays

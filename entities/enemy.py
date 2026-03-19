@@ -1,11 +1,13 @@
 """
-Enemy -- sprite animato da GIF, shake + mini-esplosione all'hit, pattern laser.
+Enemy -- animated GIF sprite with shake + mini-explosion on hit.
 
-I 4 tipi di nemico usano sprite animati estratti da ``enemy_ships.gif``:
-- scout:   laser singolo veloce, HP 1, punti 1
-- fighter: laser doppio (offset laterale), HP 2, punti 3
-- bomber:  laser lento ma pesante, HP 4, punti 5
-- elite:   burst da 3 laser ravvicinati, HP 3, punti 8
+The 4 enemy types use animated sprites extracted from ``enemy_ships.gif``:
+- scout:   Fast single laser, HP 1, score 1
+- fighter: Double offset laser, HP 2, score 3
+- bomber:  Slow but heavy triple laser, HP 4, score 5
+- elite:   Rapid 3-laser burst, HP 3, score 8
+
+All enemy lasers travel DOWNWARD since the laser PNG points down.
 """
 
 import random
@@ -16,15 +18,15 @@ from core.assets import Assets
 from entities.formations import Slot
 
 # ---------------------------------------------------------------------------
-# Parametri shake all'hit (frame-based)
+# Hit shake parameters (frame-based)
 # ---------------------------------------------------------------------------
 _SHAKE_DURATION  = 8
 _SHAKE_AMPLITUDE = 3
 
 # ---------------------------------------------------------------------------
-# Colore del laser per ciascun tipo di nemico
+# Laser color per enemy type
 # ---------------------------------------------------------------------------
-_LASER_COLOR = {
+_LASER_COLOR: dict[str, tuple] = {
     "scout":   RED,
     "fighter": ORANGE,
     "bomber":  (180, 0, 220),
@@ -32,8 +34,8 @@ _LASER_COLOR = {
     "default": RED,
 }
 
-# Velocita' del laser per tipo (pixel/frame)
-_LASER_SPEED = {
+# Laser speed per type (pixels/frame) -- all positive = downward
+_LASER_SPEED: dict[str, int] = {
     "scout":   6,
     "fighter": 5,
     "bomber":  3,
@@ -41,27 +43,26 @@ _LASER_SPEED = {
     "default": 5,
 }
 
-# Intervallo di sparo (min, max) in frame
-_SHOOT_INTERVAL = {
-    "scout":   (70,  160),
+# Firing interval range (min, max) in frames
+_SHOOT_INTERVAL: dict[str, tuple[int, int]] = {
+    "scout":   (70, 160),
     "fighter": (100, 200),
     "bomber":  (160, 320),
-    "elite":   (80,  180),
+    "elite":   (80, 180),
     "default": (100, 200),
 }
 
 
 class Enemy:
-    """Singolo nemico alieno con tipo, HP, sprite animato e pattern di sparo.
+    """Individual enemy alien with type, HP, animated sprite, and firing pattern.
 
     Args:
-        x, y:       Posizione iniziale.
-        enemy_type: Tipo di nemico.
-        hp:         Punti vita iniziali.
+        x, y:       Initial position.
+        enemy_type: Enemy type string.
+        hp:         Initial hit points.
     """
 
-    def __init__(self, x: float, y: float,
-                 enemy_type: str = "scout", hp: int = 1):
+    def __init__(self, x: float, y: float, enemy_type: str = "scout", hp: int = 1):
         self.width  = ENEMY_W
         self.height = ENEMY_H
         self.x = x
@@ -74,59 +75,69 @@ class Enemy:
 
         self.h_speed = 0.0
 
-        # Timer e intervallo sparo individuale
+        # Individual fire timer and interval
         lo, hi = _SHOOT_INTERVAL.get(enemy_type, (100, 200))
         self.shoot_timer    = random.randint(0, hi)
         self.shoot_interval = random.randint(lo, hi)
 
-        # Slot logico nella griglia della formazione
+        # Logical slot in the formation grid
         self.slot: Slot = Slot(0, 0)
 
-        # Shake all'hit
+        # Hit shake timer
         self._shake_timer = 0
 
-        # Animazione GIF
+        # GIF animation state
         self._frame_idx   = 0
         self._frame_timer = 0
         self._frame_delay = 8
 
     # ------------------------------------------------------------------
-    # DANNO
+    # DAMAGE
     # ------------------------------------------------------------------
 
     def take_damage(self, amount: int = 1) -> bool:
-        """Applica danno al nemico e attiva shake + mini-esplosione.
+        """Apply damage and trigger hit shake effect.
+
+        Args:
+            amount: Damage amount.
 
         Returns:
-            ``True`` se il nemico e' stato ucciso.
+            True if the enemy was killed.
         """
         self.hp -= amount
-
         if self.hp <= 0:
             self.hp = 0
             self.alive = False
             return True
 
-        # Nemico sopravvive: attiva lo shake
+        # Enemy survived: trigger shake
         self._shake_timer = _SHAKE_DURATION
         return False
 
     # ------------------------------------------------------------------
-    # SPRITE ANIMATO
+    # ANIMATED SPRITE
     # ------------------------------------------------------------------
 
     def _get_frames(self) -> list[pygame.Surface]:
+        """Return the animation frames for this enemy type."""
         frames = Assets.enemy_frames.get(self.enemy_type)
         if frames:
             return frames
         return Assets.enemy_frames.get("scout", [])
 
     # ------------------------------------------------------------------
-    # LASER
+    # LASER GENERATION
     # ------------------------------------------------------------------
 
     def build_lasers(self) -> list:
-        """Costruisce i laser secondo il pattern del tipo di nemico."""
+        """Build lasers according to the enemy type's firing pattern.
+
+        All lasers travel DOWNWARD (positive speed) matching the
+        downward-pointing laser sprite PNG.
+
+        Returns:
+            List of ``Laser`` objects.
+        """
         from entities.laser import Laser
 
         cx  = self.x + self.width // 2
@@ -136,17 +147,19 @@ class Enemy:
         lasers: list[Laser] = []
 
         if self.enemy_type == "scout":
+            # Single fast laser
             lasers.append(Laser(cx - 2, by, spd, col, is_enemy=True))
         elif self.enemy_type == "fighter":
+            # Double parallel lasers
             lasers.append(Laser(cx - 10, by, spd, col, is_enemy=True))
             lasers.append(Laser(cx + 8,  by, spd, col, is_enemy=True))
         elif self.enemy_type == "bomber":
-            # Bomber: laser lento ma largo (3 paralleli)
+            # Triple slow parallel lasers
             lasers.append(Laser(cx - 8, by, spd, col, is_enemy=True))
             lasers.append(Laser(cx - 2, by, spd, col, is_enemy=True))
             lasers.append(Laser(cx + 4, by, spd, col, is_enemy=True))
         elif self.enemy_type == "elite":
-            # Elite: burst di 3 laser rapidi
+            # Burst of 3 rapid lasers at slight stagger
             for dy in [0, 6, 12]:
                 lasers.append(Laser(cx - 2, by + dy, spd, col, is_enemy=True))
         else:
@@ -159,11 +172,15 @@ class Enemy:
     # ------------------------------------------------------------------
 
     def draw(self, surf: pygame.Surface) -> None:
-        """Disegna lo sprite animato del nemico con eventuale shake."""
+        """Draw the animated enemy sprite with optional shake effect.
+
+        Args:
+            surf: Target surface.
+        """
         if not self.alive:
             return
 
-        # Avanza animazione
+        # Advance animation
         self._frame_timer += 1
         if self._frame_timer >= self._frame_delay:
             self._frame_timer = 0
@@ -171,7 +188,7 @@ class Enemy:
             if frames:
                 self._frame_idx = (self._frame_idx + 1) % len(frames)
 
-        # Calcola offset di shake
+        # Calculate shake offset
         offset_x = 0
         if self._shake_timer > 0:
             ratio = self._shake_timer / _SHAKE_DURATION
@@ -184,16 +201,21 @@ class Enemy:
             frame = frames[self._frame_idx % len(frames)]
             surf.blit(frame, (int(self.x + offset_x), int(self.y)))
         else:
+            # Fallback: colored rectangle (should rarely happen)
             pygame.draw.rect(
                 surf, RED,
                 (int(self.x + offset_x), int(self.y), self.width, self.height))
 
-        # Barra HP per nemici multi-HP
+        # HP bar for multi-HP enemies
         if self.max_hp > 1 and self.hp > 0:
             self._draw_hp_bar(surf)
 
     def _draw_hp_bar(self, surf: pygame.Surface) -> None:
-        """Disegna una piccola barra HP sopra il nemico."""
+        """Draw a small HP bar above the enemy.
+
+        Args:
+            surf: Target surface.
+        """
         bar_w = self.width - 10
         bar_h = 3
         bar_x = self.x + 5
@@ -215,6 +237,7 @@ class Enemy:
     # ------------------------------------------------------------------
 
     def get_rect(self) -> pygame.Rect:
+        """Return the collision hitbox (slightly shrunken for fairness)."""
         sx, sy = 6, 4
         return pygame.Rect(
             self.x + sx,

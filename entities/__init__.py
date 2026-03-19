@@ -1,1 +1,1 @@
-"""Entities module -- Tutti gli oggetti di gioco (player, enemy, laser, ecc.)."""
+"""Entities module -- All game objects (player, enemy, laser, etc.)."""

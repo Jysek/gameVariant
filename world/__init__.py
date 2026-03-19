@@ -1,1 +1,1 @@
-"""World module - Elementi dell'ambiente di gioco (sfondo, stelle, ecc.)."""
+"""World module -- Game environment elements (background, stars, etc.)."""

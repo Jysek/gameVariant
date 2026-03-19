@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
 Space Shooter - Infinite Survival
-Progetto di: Ceccariglia Emanuele e Andrea Cestelli - ITSUmbria 2026
+Project by: Ceccariglia Emanuele & Andrea Cestelli - ITSUmbria 2026
 
-Un videogioco 2D arcade ispirato a Space Invaders.
-Sviluppato in Python con Pygame.
+A 2D arcade shooter inspired by Space Invaders.
+Developed in Python with Pygame.
 
-Entry point principale del gioco.
+This is the main entry point of the game.
 """
 
 import pygame
@@ -15,12 +15,12 @@ from game.game import Game
 
 
 def main():
-    """Inizializza Pygame, carica gli asset e avvia il gioco."""
+    """Initialize Pygame, load assets, and start the game loop."""
     pygame.init()
     pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=512)
 
-    # Avvia il gioco (Assets.load() viene chiamato dentro Game.__init__
-    # dopo display.set_mode(), così convert_alpha() funziona correttamente)
+    # Start the game (Assets.load() is called inside Game.__init__
+    # after display.set_mode(), so convert_alpha() works correctly)
     game = Game()
     game.run()
 
