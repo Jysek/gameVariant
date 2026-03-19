@@ -10,7 +10,6 @@ Uses proper sprites: Assets/carrier_bomba.png and Assets/powerup_bomba.png
 for bomb power-ups.
 """
 
-import math
 import random
 import pygame
 
@@ -306,7 +305,7 @@ class FallingPowerUp:
             self.active = False
 
     def draw(self, surface: pygame.Surface) -> None:
-        """Draw the power-up with a pulsing glow effect.
+        """Draw the power-up sprite (no glow effect).
 
         Args:
             surface: Target surface.
@@ -314,14 +313,7 @@ class FallingPowerUp:
         if not self.active:
             return
 
-        glow_alpha = int(abs(math.sin(self.pulse_timer)) * 80) + 40
-        glow_color = POWERUP_COLORS.get(self.powerup_type, WHITE)
-        glow_size  = self.width + 10
-        glow_surf  = pygame.Surface((glow_size, glow_size), pygame.SRCALPHA)
-        pygame.draw.circle(
-            glow_surf, (*glow_color, glow_alpha),
-            (glow_size // 2, glow_size // 2), glow_size // 2)
-        surface.blit(glow_surf, (int(self.x - 5), int(self.y - 5)))
+        self.pulse_timer += 0  # keep timer alive for potential future use
         surface.blit(self.image, (int(self.x), int(self.y)))
 
     def get_rect(self) -> pygame.Rect:

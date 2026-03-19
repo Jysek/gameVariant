@@ -2,16 +2,15 @@
 Boss -- 4 variants with GIF animation, unique laser patterns, progressive scaling.
 
 Variants (random spawn with equal probability):
-- Boss 0 (Titano):    Classic, 4 cannons with rotating sub-patterns.
-- Boss 1 (Furia):     Burst, rapid-fire volleys from lateral cannons.
-- Boss 2 (Ventaglio): Fan, alternating fan waves of lasers.
-- Boss 3 (Vortice):   Spiral, rotating spiral arms that accelerate.
+- Boss 0 (Titano):    Alternating cannon volleys (straight, converge, diverge).
+- Boss 1 (Furia):     Double cannon shots with delayed burst follow-up.
+- Boss 2 (Ventaglio): Symmetric 5-laser fan with alternating offset.
+- Boss 3 (Vortice):   3 rotating arms at constant speed (predictable spiral).
 
-Boss_4 (Devastatore) has been removed.
-
-All laser patterns ensure projectiles travel DOWNWARD (positive vy)
-since the enemy laser PNG sprite points downward. Patterns are designed
-to be challenging but fair -- the player can always dodge them.
+All laser patterns are designed to be simple, functional, and fair:
+- All projectiles travel primarily DOWNWARD (positive vy).
+- Patterns are predictable enough to learn and dodge.
+- No random aiming at the player -- purely geometric patterns.
 """
 
 import math
@@ -185,20 +184,22 @@ class Boss:
     def _fire_secondary(self) -> list[Laser]:
         """Handle secondary fire patterns that operate between main shots.
 
+        Only Furia uses a secondary burst between primary volleys.
+
         Returns:
             List of additional lasers (may be empty).
         """
         lasers: list[Laser] = []
 
-        # Furia: rapid burst between main shots
+        # Furia: follow-up burst shots between primary volleys
         if self.variant == 1 and self._burst_delay > 0:
             self._burst_delay -= 1
             if self._burst_delay == 0 and self._burst_count > 0:
                 self._burst_count -= 1
-                self._burst_delay = 8
-                cx, cy = self._cannon_pos(random.choice([0, 3]))
-                # Burst shots go straight down
-                lasers.append(Laser(cx, cy, 7, CYAN, is_enemy=True))
+                self._burst_delay = 10
+                cx = self.x + self.width // 2
+                cy = self.y + self.height
+                lasers.append(Laser(cx - 2, cy, 6, CYAN, is_enemy=True))
                 if self._burst_count <= 0:
                     self._burst_delay = 0
 
@@ -220,22 +221,20 @@ class Boss:
         )
 
     # ------------------------------------------------------------------
-    # TITANO (Boss 0): Classic rotating cannon patterns
+    # TITANO (Boss 0): Alternating cannon volleys
     # ------------------------------------------------------------------
 
     def _fire_titano(self) -> list[Laser]:
-        """Titano fires 4 rotating sub-patterns from its 4 cannons.
+        """Titano cycles through 3 simple cannon patterns.
 
-        Sub-patterns cycle through:
-        0: All 4 cannons fire straight down.
-        1: Outer cannons fire converging shots toward screen center.
-        2: Inner cannons fire slightly diverging shots.
-        3: All cannons fire at a random target X position.
+        Pattern 0: All 4 cannons fire straight down.
+        Pattern 1: Outer cannons fire with slight inward angle.
+        Pattern 2: Inner cannons fire with slight outward angle.
 
-        All shots move primarily downward (vy > 0) with small vx offsets.
+        All shots move primarily downward with predictable trajectories.
         """
         lasers: list[Laser] = []
-        self._titano_rotation = (self._titano_rotation + 1) % 4
+        self._titano_rotation = (self._titano_rotation + 1) % 3
 
         if self._titano_rotation == 0:
             # All 4 cannons fire straight down
@@ -244,83 +243,69 @@ class Boss:
                 lasers.append(Laser(cx, cy, 5, ORANGE, is_enemy=True))
 
         elif self._titano_rotation == 1:
-            # Outer cannons: converging shots toward center
-            center_x = self.x + self.width // 2
+            # Outer cannons converge slightly inward
             for i in [0, 3]:
                 cx, cy = self._cannon_pos(i)
-                dx = (center_x - cx) * 0.03
-                lasers.append(Laser(cx, cy, 5, RED, is_enemy=True, vx=dx))
-
-        elif self._titano_rotation == 2:
-            # Inner cannons: slightly diverging shots
-            for i in [1, 2]:
-                cx, cy = self._cannon_pos(i)
-                vx = -1.5 if i == 1 else 1.5
-                lasers.append(Laser(cx, cy, 5, YELLOW, is_enemy=True, vx=vx))
+                vx = 1.2 if i == 0 else -1.2
+                lasers.append(Laser(cx, cy, 5, RED, is_enemy=True, vx=vx))
 
         else:
-            # Focused salvo: all cannons aim at a random screen position
-            target_x = random.randint(100, SCREEN_WIDTH - 100)
-            for i in range(4):
+            # Inner cannons diverge slightly outward
+            for i in [1, 2]:
                 cx, cy = self._cannon_pos(i)
-                dx = (target_x - cx) * 0.018
-                lasers.append(
-                    Laser(cx, cy, 5, (255, 130, 50), is_enemy=True, vx=dx)
-                )
+                vx = -1.0 if i == 1 else 1.0
+                lasers.append(Laser(cx, cy, 5, YELLOW, is_enemy=True, vx=vx))
 
         return lasers
 
     # ------------------------------------------------------------------
-    # FURIA (Boss 1): Devastating burst attacks
+    # FURIA (Boss 1): Double cannon burst
     # ------------------------------------------------------------------
 
     def _fire_furia(self) -> list[Laser]:
-        """Furia fires rapid bursts from lateral cannons.
+        """Furia fires from both lateral cannons then triggers a follow-up burst.
 
-        Primary: 3 lasers per side at staggered vertical offsets.
-        Secondary: Activates a burst counter for follow-up shots.
+        Primary: 1 laser from each outer cannon straight down.
+        Secondary: 2 follow-up shots from the center after a short delay.
 
-        All shots travel straight down (no horizontal velocity on primary).
+        Simple and predictable but the burst keeps pressure on the player.
         """
         lasers: list[Laser] = []
+        # Fire from outer cannons
         for i in [0, 3]:
             cx, cy = self._cannon_pos(i)
-            for dy in [0, 10, 20]:
-                speed = 5.5 + dy * 0.08
-                lasers.append(Laser(cx, cy + dy, speed, CYAN, is_enemy=True))
+            lasers.append(Laser(cx, cy, 5.5, CYAN, is_enemy=True))
 
-        # Activate secondary burst
-        self._burst_count = 3
-        self._burst_delay = 6
+        # Activate a small follow-up burst (2 shots from center)
+        self._burst_count = 2
+        self._burst_delay = 10
         return lasers
 
     # ------------------------------------------------------------------
-    # VENTAGLIO (Boss 2): Alternating fan waves
+    # VENTAGLIO (Boss 2): Fixed-angle fan
     # ------------------------------------------------------------------
 
     def _fire_ventaglio(self) -> list[Laser]:
-        """Ventaglio fires a fan of 5 lasers with alternating direction.
+        """Ventaglio fires a symmetric fan of 5 lasers from center.
 
-        The spread angle oscillates over time, creating varied wave patterns.
-        All shots have a guaranteed downward component (vy >= 3.5).
-        The fan width and offset alternate to prevent memorization.
+        Lasers spread evenly across a fixed 60-degree arc.
+        The fan alternates leaning left or right by a small offset.
+        All shots have strong downward velocity (vy >= 4).
         """
         lasers: list[Laser] = []
         center_x = self.x + self.width // 2
         center_y = self.y + self.height
 
-        self._fan_wave += 1
         n_rays = 5
-        # Spread oscillates between 25 and 50 degrees
-        spread = 25 + 25 * abs(math.sin(self._fan_wave * 0.25))
+        spread = 30  # degrees from center (total arc = 60 degrees)
+        # Small alternating offset to vary the pattern slightly
+        offset = self._fan_direction * 5
 
-        base_angle = self._fan_direction * 8
         for i in range(n_rays):
-            angle_deg = base_angle + (-spread + (2 * spread / max(1, n_rays - 1)) * i)
+            angle_deg = offset + (-spread + (2 * spread / (n_rays - 1)) * i)
             rad = math.radians(angle_deg)
-            vx = math.sin(rad) * 3.5
-            # Ensure vy is always positive (downward) and substantial
-            vy = max(3.5, math.cos(rad) * 5.0)
+            vx = math.sin(rad) * 4.0
+            vy = max(4.0, math.cos(rad) * 5.0)
             lasers.append(
                 Laser(center_x - 2, center_y, vy, MAGENTA, is_enemy=True, vx=vx)
             )
@@ -329,15 +314,15 @@ class Boss:
         return lasers
 
     # ------------------------------------------------------------------
-    # VORTICE (Boss 3): Rotating spiral arms
+    # VORTICE (Boss 3): Steady rotating arms
     # ------------------------------------------------------------------
 
     def _fire_vortice(self) -> list[Laser]:
-        """Vortice fires 3 rotating spiral arms that accelerate gradually.
+        """Vortice fires 3 rotating arms at fixed rotation speed.
 
-        Each arm is offset by 120 degrees. The rotation speed increases
-        over time then resets, creating rhythmic patterns the player
-        can learn to dodge. All shots have positive vy (downward).
+        Each arm is offset by 120 degrees. The rotation advances by
+        a constant amount each shot, producing a predictable spiral
+        the player can learn to weave through. All shots travel downward.
         """
         lasers: list[Laser] = []
         center_x = self.x + self.width // 2
@@ -347,18 +332,14 @@ class Boss:
         for arm in range(n_arms):
             offset = (2 * math.pi / n_arms) * arm
             angle = self._spiral_angle + offset
-            vx = math.sin(angle) * 3.0
-            # Always ensure downward movement (vy positive and > 2)
-            vy = max(2.5, abs(math.cos(angle)) * 4.0 + 1.5)
+            vx = math.sin(angle) * 2.5
+            vy = max(3.5, abs(math.cos(angle)) * 4.0 + 2.0)
             lasers.append(
                 Laser(center_x - 2, center_y, vy, GREEN, is_enemy=True, vx=vx)
             )
 
-        # Gradually accelerate spiral, then reset for rhythmic feel
-        self._spiral_speed += self._spiral_accel
-        if self._spiral_speed > 1.0:
-            self._spiral_speed = 0.4
-        self._spiral_angle += self._spiral_speed
+        # Constant rotation speed -- predictable and learnable
+        self._spiral_angle += 0.5
 
         return lasers
 
