@@ -1,26 +1,16 @@
-"""Space Shooter -- Infinite Survival  |  game.py v13 (refactored)
+"""Space Shooter -- Infinite Survival  |  game.py v15 (refactored)
 
 Autori: Ceccariglia Emanuele & Andrea Cestelli -- ITSUmbria 2026
 
 Game loop principale, gestione stati, spawning, collisioni, HUD e pausa.
 
-Modifiche in v13:
-- Rimossi tutti i rettangoli glow da laser e power-up.
-- I carrier possono essere distrutti dagli asteroidi durante la pioggia.
-- Pattern laser boss semplificati: prevedibili, funzionali e equi.
-- Collisione asteroide-carrier aggiunta alle fasi normali e pioggia.
-- Rimossi hitbox visivi dei laser.
-- Corretto bug intervalli sparo duplicati in formation_group.
-- Corretto HUD posizionamento e dimensionamento testi.
-- Documentazione completa in italiano su tutte le funzioni.
-
-Modifiche in v14:
-- Rimosse mini-esplosioni d'impatto laser su boss, carrier e nemici.
-  Le piccole esplosioni al punto di collisione laser (size 28-32) sono
-  state eliminate. Le esplosioni di distruzione restano invariate.
-- Aumentata soglia alpha glow laser da 80 a 180 per eliminare i
-  rettangoli semi-trasparenti visibili quando un laser colpisce
-  carrier, nemici, boss o passa sopra il testo dell'HUD.
+Modifiche in v15:
+- Eliminati definitivamente tutti i rettangoli visibili causati da
+  sovrapposizione laser/testo. L'HUD completo (punteggio, vite, tempo,
+  combo, numeri danno, indicatori power-up) viene disegnato su un layer
+  SRCALPHA separato sovrapposto dopo il rendering di gioco, impedendo
+  qualsiasi artefatto di blending tra sprite laser e testo.
+- Pulizia struttura directory: rimossi Assets/ duplicati e LaserSprites/.
 """
 
 import math
@@ -108,6 +98,14 @@ class Game:
 
         # Surface pre-allocata per screen shake (evita allocazione per-frame)
         self._shake_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+
+        # Surface overlay HUD separata (SRCALPHA) per evitare artefatti
+        # rettangolari quando i laser si sovrappongono al testo.
+        # Disegnando tutto l'HUD su un layer separato e blittandolo
+        # dopo il rendering di gioco, i pixel semi-trasparenti degli
+        # sprite laser non possono interagire col testo.
+        self._hud_overlay = pygame.Surface(
+            (SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
 
         # Surface overlay pre-allocate (riusate ogni frame)
         self._emp_overlay = pygame.Surface(
@@ -1604,7 +1602,13 @@ class Game:
     # ======================================================================
 
     def draw_game(self) -> None:
-        """Disegna la schermata gameplay con tutte le entità e l'HUD."""
+        """Disegna la schermata gameplay con tutte le entita e l'HUD.
+
+        L'HUD, i numeri danno flottanti e il testo combo vengono disegnati
+        su un layer SRCALPHA separato (_hud_overlay) che viene sovrapposto
+        dopo il rendering di gioco. Questo impedisce qualsiasi artefatto
+        rettangolare causato dal blending tra sprite laser e testo.
+        """
         self.screen.fill(BLACK)
 
         # Riusa surface shake pre-allocata
@@ -1612,7 +1616,7 @@ class Game:
         shake_surf.fill(BLACK)
         self.stars.draw(shake_surf)
 
-        # Disegna tutte le entità
+        # Disegna tutte le entita di gioco (su shake_surf)
         for laser in self.player_lasers:
             laser.draw(shake_surf)
         for laser in self.enemy_lasers:
@@ -1630,27 +1634,6 @@ class Game:
         self.player.draw(shake_surf)
         for expl in self.explosions:
             expl.draw(shake_surf)
-
-        # Numeri danno flottanti
-        # Nota: NON usare set_alpha() sulle Surface restituite da font.render(),
-        # perché sono per-pixel-alpha (SRCALPHA) e set_alpha() su di esse
-        # crea un rettangolo bianco/colorato visibile come sfondo.
-        # Invece, integriamo l'alpha direttamente nel colore RGBA del testo.
-        for dn in self._damage_numbers:
-            alpha = min(255, dn["timer"] * 6)
-            r, g, b = dn["color"][:3]
-            txt_surf = pygame.Surface(
-                self.font_small.size(dn["text"]), pygame.SRCALPHA)
-            txt_render = self.font_small.render(
-                dn["text"], True, (r, g, b))
-            txt_surf.blit(txt_render, (0, 0))
-            # Moltiplica l'alpha di ogni pixel per il fattore di fade-out
-            alpha_arr = pygame.surfarray.pixels_alpha(txt_surf)
-            alpha_arr[:] = (alpha_arr.astype(int) * alpha // 255).clip(0, 255)
-            del alpha_arr
-            shake_surf.blit(
-                txt_surf,
-                (int(dn["x"]) - txt_surf.get_width() // 2, int(dn["y"])))
 
         # Applica offset screen shake
         self.screen.blit(
@@ -1678,11 +1661,35 @@ class Game:
                 self.rain_w_timer, self.rain_w_dur,
                 "PIOGGIA DI ASTEROIDI", ORANGE, "Sopravvivi!")
 
-        # Barra salute boss
+        # Barra salute boss (disegnata direttamente sullo schermo)
         if self.boss_active and self.boss and self.boss.alive:
             self.boss.draw_health_bar(self.screen)
 
-        self._draw_hud()
+        # ---- LAYER HUD SEPARATO ----
+        # Pulisci l'overlay HUD (completamente trasparente)
+        self._hud_overlay.fill((0, 0, 0, 0))
+
+        # Disegna numeri danno flottanti sull'overlay HUD
+        for dn in self._damage_numbers:
+            alpha = min(255, dn["timer"] * 6)
+            r, g, b = dn["color"][:3]
+            txt_surf = pygame.Surface(
+                self.font_small.size(dn["text"]), pygame.SRCALPHA)
+            txt_render = self.font_small.render(
+                dn["text"], True, (r, g, b))
+            txt_surf.blit(txt_render, (0, 0))
+            alpha_arr = pygame.surfarray.pixels_alpha(txt_surf)
+            alpha_arr[:] = (alpha_arr.astype(int) * alpha // 255).clip(0, 255)
+            del alpha_arr
+            self._hud_overlay.blit(
+                txt_surf,
+                (int(dn["x"]) - txt_surf.get_width() // 2, int(dn["y"])))
+
+        # Disegna tutto l'HUD sull'overlay
+        self._draw_hud(self._hud_overlay)
+
+        # Blitta l'overlay HUD sullo schermo (sopra tutto il resto)
+        self.screen.blit(self._hud_overlay, (0, 0))
 
         # Countdown periodo di grazia
         if self._grace_active:
@@ -1692,29 +1699,33 @@ class Game:
         if self._paused:
             self.draw_pause_overlay()
 
-    def _draw_hud(self) -> None:
-        """Disegna l'heads-up display (punteggio, vite, tempo, ecc.)."""
-        # Sposta HUD in basso se c'è la barra boss
+    def _draw_hud(self, surface: pygame.Surface) -> None:
+        """Disegna l'heads-up display (punteggio, vite, tempo, ecc.).
+
+        Args:
+            surface: Surface di destinazione (overlay HUD separato).
+        """
+        # Sposta HUD in basso se c'e la barra boss
         hud_y = (38 if (self.boss_active and self.boss
                         and self.boss.alive) else 10)
 
         # Punteggio
         sc = self.font_hud.render(f"Punti: {self.score}", True, WHITE)
-        self.screen.blit(sc, (16, hud_y + 4))
+        surface.blit(sc, (16, hud_y + 4))
 
         # Vite
-        self._draw_lives(hud_y)
+        self._draw_lives(surface, hud_y)
 
         # Tempo
         secs = self.game_time // 60
         tt = self.font_small.render(
             f"Tempo: {_fmt_time(secs)}", True, (180, 180, 200))
-        self.screen.blit(tt, (SCREEN_WIDTH - 145, hud_y + 6))
+        surface.blit(tt, (SCREEN_WIDTH - 145, hud_y + 6))
 
-        # Livello difficoltà
+        # Livello difficolta
         dlvl = self.font_tiny.render(
             f"Livello {self._diff_level + 1}", True, (120, 200, 120))
-        self.screen.blit(dlvl, (SCREEN_WIDTH - 80, hud_y + 30))
+        surface.blit(dlvl, (SCREEN_WIDTH - 80, hud_y + 30))
 
         # Indicatore fase corrente
         if self.rain_active or self.rain_draining:
@@ -1722,21 +1733,21 @@ class Game:
             label = ("PIOGGIA DI ASTEROIDI"
                      if self.rain_active else "ASTEROIDI IN VOLO...")
             ri = self.font_tiny.render(f"* {label}", True, col)
-            self.screen.blit(
+            surface.blit(
                 ri, (SCREEN_WIDTH // 2 - ri.get_width() // 2,
                      hud_y + 30))
         elif self.boss_active:
             bi = self.font_tiny.render(
                 f"BOSS FIGHT!  (sconfitti: {self.boss_defeated_count})",
                 True, RED)
-            self.screen.blit(bi, (SCREEN_WIDTH - 300, hud_y + 30))
+            surface.blit(bi, (SCREEN_WIDTH - 300, hud_y + 30))
         else:
             alive = self._total_alive()
             fg = self.font_tiny.render(
                 f"Nemici: {alive}  |  "
                 f"Gruppi: {len(self.formation_groups)}",
                 True, (180, 100, 100))
-            self.screen.blit(fg, (SCREEN_WIDTH - 240, hud_y + 30))
+            surface.blit(fg, (SCREEN_WIDTH - 240, hud_y + 30))
 
         # Barra cooldown sparo
         ticks = pygame.time.get_ticks()
@@ -1747,10 +1758,10 @@ class Game:
         if cd > 0:
             pct = cd / cooldown
             pygame.draw.rect(
-                self.screen, (60, 60, 60),
+                surface, (60, 60, 60),
                 (16, hud_y + 38, 60, 5))
             pygame.draw.rect(
-                self.screen, CYAN,
+                surface, CYAN,
                 (16, hud_y + 38, int(60 * (1 - pct)), 5))
 
         # Suggerimenti controlli
@@ -1769,18 +1780,19 @@ class Game:
 
         ph = self.font_tiny.render(
             "  |  ".join(hints), True, (80, 80, 105))
-        self.screen.blit(
+        surface.blit(
             ph, (SCREEN_WIDTH // 2 - ph.get_width() // 2,
                  SCREEN_HEIGHT - 18))
 
-        self._draw_pu_hud(hud_y)
-        self._draw_combo_hud(hud_y)
+        self._draw_pu_hud(surface, hud_y)
+        self._draw_combo_hud(surface, hud_y)
 
-    def _draw_pu_hud(self, hud_y: int) -> None:
+    def _draw_pu_hud(self, surface: pygame.Surface, hud_y: int) -> None:
         """Disegna i timer power-up attivi sull'HUD.
 
         Args:
-            hud_y: Posizione Y base per l'HUD.
+            surface: Surface di destinazione (overlay HUD).
+            hud_y:   Posizione Y base per l'HUD.
         """
         active: list[tuple[str, tuple, float, float]] = []
         if self.player.shield_active:
@@ -1813,18 +1825,19 @@ class Game:
         for name, col, secs_left, pct in active:
             lbl = self.font_tiny.render(
                 f"{name} {secs_left:.1f}s", True, col)
-            self.screen.blit(lbl, (14, py))
+            surface.blit(lbl, (14, py))
             pygame.draw.rect(
-                self.screen, (40, 40, 40), (10, py + 16, 120, 3))
+                surface, (40, 40, 40), (10, py + 16, 120, 3))
             pygame.draw.rect(
-                self.screen, col, (10, py + 16, int(120 * pct), 3))
+                surface, col, (10, py + 16, int(120 * pct), 3))
             py += 20
 
-    def _draw_combo_hud(self, hud_y: int) -> None:
+    def _draw_combo_hud(self, surface: pygame.Surface, hud_y: int) -> None:
         """Disegna contatore combo e conteggio uccisioni sull'HUD.
 
         Args:
-            hud_y: Posizione Y base per l'HUD.
+            surface: Surface di destinazione (overlay HUD).
+            hud_y:   Posizione Y base per l'HUD.
         """
         if self._combo_count >= 3 and self._combo_display > 0:
             alpha = min(255, self._combo_display * 5)
@@ -1834,8 +1847,6 @@ class Game:
             col = ORANGE if self._combo_count >= 10 else YELLOW
             if self._combo_count >= 15:
                 col = RED
-            # NON usare set_alpha() su Surface font: crea rettangoli.
-            # Integriamo l'alpha nel canale alfa dei pixel del testo.
             r, g, b = col[:3]
             ct_render = self.font_medium.render(combo_text, True, (r, g, b))
             ct = pygame.Surface(ct_render.get_size(), pygame.SRCALPHA)
@@ -1843,13 +1854,13 @@ class Game:
             alpha_arr = pygame.surfarray.pixels_alpha(ct)
             alpha_arr[:] = (alpha_arr.astype(int) * alpha // 255).clip(0, 255)
             del alpha_arr
-            self.screen.blit(
+            surface.blit(
                 ct, (SCREEN_WIDTH // 2 - ct.get_width() // 2,
                      hud_y + 50))
 
         kt = self.font_tiny.render(
             f"Uccisioni: {self._total_kills}", True, (120, 120, 150))
-        self.screen.blit(kt, (16, SCREEN_HEIGHT - 34))
+        surface.blit(kt, (16, SCREEN_HEIGHT - 34))
 
     def _draw_grace_countdown(self) -> None:
         """Disegna l'overlay countdown del periodo di grazia."""
@@ -1884,17 +1895,18 @@ class Game:
             ctrl, (SCREEN_WIDTH // 2 - ctrl.get_width() // 2,
                    SCREEN_HEIGHT // 2 + 90))
 
-    def _draw_lives(self, hud_y: int) -> None:
+    def _draw_lives(self, surface: pygame.Surface, hud_y: int) -> None:
         """Disegna le icone cuore per le vite del giocatore.
 
         Args:
-            hud_y: Posizione Y base per l'HUD.
+            surface: Surface di destinazione (overlay HUD).
+            hud_y:   Posizione Y base per l'HUD.
         """
         sz, sp = 18, 24
         sx, sy = 200, hud_y + 8
         for i in range(Player.MAX_LIVES):
             col = RED if i < self.player.lives else (60, 60, 60)
-            self._heart(self.screen, sx + i * sp, sy, sz, col)
+            self._heart(surface, sx + i * sp, sy, sz, col)
 
     @staticmethod
     def _heart(surf: pygame.Surface, x: int, y: int,

@@ -190,8 +190,9 @@ class _Particle:
              frames: list[pygame.Surface]) -> None:
         """Disegna la particella usando il frame dello spritesheet scia.
 
-        Usa blit diretto con set_alpha per migliori prestazioni
-        invece di scalare ogni frame.
+        Crea una copia del frame con alpha per-pixel per evitare
+        artefatti rettangolari quando si usa set_alpha() su Surface
+        condivise tra piu particelle.
 
         Args:
             surf:   Surface di destinazione.
@@ -209,9 +210,16 @@ class _Particle:
         else:
             scaled = src
             sz = _FW
-        scaled.set_alpha(alpha_val)
+        # Crea copia con alpha per-pixel per evitare rettangoli
+        # causati da set_alpha() su Surface condivise
+        tmp = pygame.Surface((sz, sz), pygame.SRCALPHA)
+        tmp.blit(scaled, (0, 0))
+        if alpha_val < 255:
+            arr = pygame.surfarray.pixels_alpha(tmp)
+            arr[:] = (arr.astype(int) * alpha_val // 255).clip(0, 255)
+            del arr
         surf.blit(
-            scaled,
+            tmp,
             (int(self.x - sz // 2), int(self.y - sz // 2)),
             special_flags=pygame.BLEND_ADD,
         )
