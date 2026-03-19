@@ -73,7 +73,6 @@ class PowerUpCarrier:
         # Fuga iperspaziale
         self.escape_speed        = 0
         self.escape_acceleration = 1.5
-        self.hit_flash = 0
         self.trail_particles: list[dict] = []
 
         # Effetto shake
@@ -103,9 +102,6 @@ class PowerUpCarrier:
         else:
             self._shake_offset_x = 0
             self._shake_offset_y = 0
-
-        if self.hit_flash > 0:
-            self.hit_flash -= 1
 
         if self.state == PowerUpCarrier.STATE_DESCENDING:
             self._update_descending()

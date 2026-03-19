@@ -27,6 +27,7 @@ import math
 import random
 import sys
 
+import numpy as np
 import pygame
 
 from core.constants import (
@@ -1361,7 +1362,11 @@ class Game:
             preview = pygame.transform.scale(
                 frames[ship_idx][0], (55, 55))
             if not is_unlocked:
-                preview.set_alpha(80)
+                # NON usare set_alpha() su Surface SRCALPHA: crea rettangoli.
+                # Moltiplichiamo il canale alpha dei pixel direttamente.
+                alpha_arr = pygame.surfarray.pixels_alpha(preview)
+                alpha_arr[:] = (alpha_arr.astype(int) * 80 // 255).clip(0, 255)
+                del alpha_arr
             self.screen.blit(preview, (bx + card_w // 2 - 27, by + 38))
         else:
             pygame.draw.rect(
@@ -1627,12 +1632,25 @@ class Game:
             expl.draw(shake_surf)
 
         # Numeri danno flottanti
+        # Nota: NON usare set_alpha() sulle Surface restituite da font.render(),
+        # perché sono per-pixel-alpha (SRCALPHA) e set_alpha() su di esse
+        # crea un rettangolo bianco/colorato visibile come sfondo.
+        # Invece, integriamo l'alpha direttamente nel colore RGBA del testo.
         for dn in self._damage_numbers:
             alpha = min(255, dn["timer"] * 6)
-            txt = self.font_small.render(dn["text"], True, dn["color"])
-            txt.set_alpha(alpha)
+            r, g, b = dn["color"][:3]
+            txt_surf = pygame.Surface(
+                self.font_small.size(dn["text"]), pygame.SRCALPHA)
+            txt_render = self.font_small.render(
+                dn["text"], True, (r, g, b))
+            txt_surf.blit(txt_render, (0, 0))
+            # Moltiplica l'alpha di ogni pixel per il fattore di fade-out
+            alpha_arr = pygame.surfarray.pixels_alpha(txt_surf)
+            alpha_arr[:] = (alpha_arr.astype(int) * alpha // 255).clip(0, 255)
+            del alpha_arr
             shake_surf.blit(
-                txt, (int(dn["x"]) - txt.get_width() // 2, int(dn["y"])))
+                txt_surf,
+                (int(dn["x"]) - txt_surf.get_width() // 2, int(dn["y"])))
 
         # Applica offset screen shake
         self.screen.blit(
@@ -1816,8 +1834,15 @@ class Game:
             col = ORANGE if self._combo_count >= 10 else YELLOW
             if self._combo_count >= 15:
                 col = RED
-            ct = self.font_medium.render(combo_text, True, col)
-            ct.set_alpha(alpha)
+            # NON usare set_alpha() su Surface font: crea rettangoli.
+            # Integriamo l'alpha nel canale alfa dei pixel del testo.
+            r, g, b = col[:3]
+            ct_render = self.font_medium.render(combo_text, True, (r, g, b))
+            ct = pygame.Surface(ct_render.get_size(), pygame.SRCALPHA)
+            ct.blit(ct_render, (0, 0))
+            alpha_arr = pygame.surfarray.pixels_alpha(ct)
+            alpha_arr[:] = (alpha_arr.astype(int) * alpha // 255).clip(0, 255)
+            del alpha_arr
             self.screen.blit(
                 ct, (SCREEN_WIDTH // 2 - ct.get_width() // 2,
                      hud_y + 50))
