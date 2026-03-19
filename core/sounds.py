@@ -3,17 +3,20 @@ Procedural sound effects and background music generation.
 
 All sounds are generated at runtime without external audio files.
 Background music is a procedurally generated space ambient loop.
+
+Uses numpy for fast sample generation instead of per-sample Python loops.
 """
 
 import math
 import random
+import numpy as np
 import pygame
 
 
 def _generate_sound(
     frequency: float, duration_ms: int, volume: float = 0.3, wave_type: str = "square"
 ) -> pygame.mixer.Sound:
-    """Generate a single procedural sound effect.
+    """Generate a single procedural sound effect using numpy.
 
     Args:
         frequency:   Frequency in Hz.
@@ -26,41 +29,39 @@ def _generate_sound(
     """
     sample_rate = 22050
     n_samples = int(sample_rate * duration_ms / 1000)
-    buf = bytearray(n_samples * 2)
-    max_amp = int(32767 * volume)
+    max_amp = 32767 * volume
 
-    for i in range(n_samples):
-        t = i / sample_rate
+    t = np.arange(n_samples, dtype=np.float64) / sample_rate
 
-        if wave_type == "square":
-            val = max_amp if math.sin(2 * math.pi * frequency * t) >= 0 else -max_amp
-        elif wave_type == "sine":
-            val = int(max_amp * math.sin(2 * math.pi * frequency * t))
-        elif wave_type == "noise":
-            val = random.randint(-max_amp, max_amp)
-        elif wave_type == "sweep":
-            f = frequency * (1 - 0.8 * i / n_samples)
-            val = int(max_amp * math.sin(2 * math.pi * f * t))
-        else:
-            val = 0
+    if wave_type == "square":
+        vals = np.where(np.sin(2 * np.pi * frequency * t) >= 0, max_amp, -max_amp)
+    elif wave_type == "sine":
+        vals = max_amp * np.sin(2 * np.pi * frequency * t)
+    elif wave_type == "noise":
+        vals = np.random.randint(-int(max_amp), int(max_amp) + 1, n_samples).astype(np.float64)
+    elif wave_type == "sweep":
+        f = frequency * (1 - 0.8 * np.arange(n_samples) / n_samples)
+        phase = np.cumsum(2 * np.pi * f / sample_rate)
+        vals = max_amp * np.sin(phase)
+    else:
+        vals = np.zeros(n_samples)
 
-        # Fade out in the last 20%
-        fade_start = int(n_samples * 0.8)
-        if i > fade_start:
-            fade = 1.0 - (i - fade_start) / (n_samples - fade_start)
-            val = int(val * fade)
+    # Fade out in the last 20%
+    fade_start = int(n_samples * 0.8)
+    fade_len = n_samples - fade_start
+    if fade_len > 0:
+        fade = np.ones(n_samples)
+        fade[fade_start:] = 1.0 - np.arange(fade_len) / fade_len
+        vals *= fade
 
-        val = max(-32768, min(32767, val))
-        buf[i * 2] = val & 0xFF
-        buf[i * 2 + 1] = (val >> 8) & 0xFF
-
-    return pygame.mixer.Sound(buffer=bytes(buf))
+    vals = np.clip(vals, -32768, 32767).astype(np.int16)
+    return pygame.mixer.Sound(buffer=vals.tobytes())
 
 
 def generate_background_music(
     duration_ms: int = 8000, volume: float = 0.12
 ) -> pygame.mixer.Sound:
-    """Generate a space ambient music loop.
+    """Generate a space ambient music loop using numpy.
 
     Overlays three layers:
     - Pulsating bass drone (low-frequency sine wave)
@@ -76,7 +77,10 @@ def generate_background_music(
     """
     sample_rate = 22050
     n = int(sample_rate * duration_ms / 1000)
-    buf = bytearray(n * 2)
+    max_amp = 32767 * volume
+
+    t = np.arange(n, dtype=np.float64) / sample_rate
+    vals = np.zeros(n, dtype=np.float64)
 
     # Minor pentatonic scale (Hz) for the arpeggio
     pentatonic = [
@@ -86,46 +90,42 @@ def generate_background_music(
     arp_notes = [pentatonic[i % len(pentatonic)] for i in range(12)]
     note_dur = n // len(arp_notes)
 
-    max_amp = int(32767 * volume)
+    # --- Layer 1: pulsating bass drone ---
+    drone_freq = 55.0  # A1
+    lfo = 0.6 + 0.4 * np.sin(2 * np.pi * 0.15 * t)
+    vals += max_amp * 0.45 * lfo * np.sin(2 * np.pi * drone_freq * t)
+    vals += max_amp * 0.15 * lfo * np.sin(2 * np.pi * drone_freq * 2 * t)
 
-    for i in range(n):
-        t = i / sample_rate
-        val = 0
+    # --- Layer 2: pentatonic arpeggio ---
+    for ni in range(len(arp_notes)):
+        start = ni * note_dur
+        end = min(start + note_dur, n)
+        segment_len = end - start
+        if segment_len <= 0:
+            continue
+        note_freq = arp_notes[ni]
+        note_phase = np.arange(segment_len, dtype=np.float64) / segment_len
+        env = np.where(
+            note_phase < 0.05,
+            note_phase / 0.05,
+            np.maximum(0.0, 1.0 - (note_phase - 0.05) * 0.9),
+        )
+        seg_t = t[start:end]
+        vals[start:end] += max_amp * 0.20 * env * np.sin(2 * np.pi * note_freq * seg_t)
 
-        # --- Layer 1: pulsating bass drone ---
-        drone_freq = 55.0  # A1
-        lfo = 0.6 + 0.4 * math.sin(2 * math.pi * 0.15 * t)
-        val += int(max_amp * 0.45 * lfo * math.sin(2 * math.pi * drone_freq * t))
-        val += int(max_amp * 0.15 * lfo * math.sin(2 * math.pi * drone_freq * 2 * t))
+    # --- Layer 3: cosmic shimmer ---
+    shimmer_lfo = 0.3 + 0.7 * np.abs(np.sin(2 * np.pi * 0.07 * t))
+    shimmer = np.random.randint(-int(max_amp), int(max_amp) + 1, n).astype(np.float64)
+    vals += shimmer * 0.04 * shimmer_lfo
 
-        # --- Layer 2: pentatonic arpeggio ---
-        note_idx = (i // note_dur) % len(arp_notes)
-        note_freq = arp_notes[note_idx]
-        note_phase = (i % note_dur) / note_dur
-        if note_phase < 0.05:
-            env = note_phase / 0.05
-        else:
-            env = 1.0 - (note_phase - 0.05) * 0.9
-        env = max(0.0, env)
-        val += int(max_amp * 0.20 * env * math.sin(2 * math.pi * note_freq * t))
+    # Fade in/out at loop boundaries (prevent clicks)
+    fade_len = int(sample_rate * 0.3)
+    if fade_len > 0 and n > 2 * fade_len:
+        vals[:fade_len] *= np.arange(fade_len) / fade_len
+        vals[-fade_len:] *= np.arange(fade_len, 0, -1) / fade_len
 
-        # --- Layer 3: cosmic shimmer ---
-        shimmer_lfo = 0.3 + 0.7 * abs(math.sin(2 * math.pi * 0.07 * t))
-        shimmer = random.randint(-max_amp, max_amp) * 0.04 * shimmer_lfo
-        val += int(shimmer)
-
-        # Fade in/out at loop boundaries (prevent clicks)
-        fade_len = int(sample_rate * 0.3)
-        if i < fade_len:
-            val = int(val * i / fade_len)
-        elif i > n - fade_len:
-            val = int(val * (n - i) / fade_len)
-
-        val = max(-32768, min(32767, val))
-        buf[i * 2] = val & 0xFF
-        buf[i * 2 + 1] = (val >> 8) & 0xFF
-
-    return pygame.mixer.Sound(buffer=bytes(buf))
+    vals = np.clip(vals, -32768, 32767).astype(np.int16)
+    return pygame.mixer.Sound(buffer=vals.tobytes())
 
 
 def create_sounds() -> dict[str, pygame.mixer.Sound]:

@@ -194,25 +194,28 @@ class PowerUpCarrier:
         if self.state == PowerUpCarrier.STATE_ESCAPING:
             self._draw_trail(surface)
 
-        draw_img = self.image.copy()
+        draw_x = int(self.x + self._shake_offset_x)
+        draw_y = int(self.y + self._shake_offset_y)
 
-        # Vertical stretch during escape
+        # Vertical stretch during escape (only case needing transform)
         if self.state == PowerUpCarrier.STATE_ESCAPING:
             stretch_h = min(
                 self.height + int(self.escape_speed * 2),
                 self.height * 3)
-            draw_img = pygame.transform.scale(draw_img, (self.width, stretch_h))
-
-        draw_x = int(self.x + self._shake_offset_x)
-        draw_y = int(self.y + self._shake_offset_y)
-        surface.blit(draw_img, (draw_x, draw_y))
+            draw_img = pygame.transform.scale(self.image, (self.width, stretch_h))
+            surface.blit(draw_img, (draw_x, draw_y))
+        else:
+            surface.blit(self.image, (draw_x, draw_y))
 
         # HUD overlay (type label, HP bar, timer)
         if self.state != PowerUpCarrier.STATE_ESCAPING:
             self._draw_carrier_hud(surface)
 
     def _draw_trail(self, surface: pygame.Surface) -> None:
-        """Draw escape trail particles.
+        """Draw escape trail particles using direct circle drawing.
+
+        Uses pygame.draw.circle directly instead of creating a Surface
+        per particle for better performance.
 
         Args:
             surface: Target surface.
@@ -221,11 +224,16 @@ class PowerUpCarrier:
             size = int(p["size"])
             if size <= 0:
                 continue
-            trail_surf = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
+            alpha = int(p["alpha"])
+            if alpha < 20:
+                continue
+            factor = alpha / 255.0
+            cr = min(255, int(100 * factor))
+            cg = min(255, int(180 * factor))
+            cb = min(255, int(255 * factor))
             pygame.draw.circle(
-                trail_surf, (100, 180, 255, int(p["alpha"])),
-                (size, size), size)
-            surface.blit(trail_surf, (int(p["x"] - size), int(p["y"] - size)))
+                surface, (cr, cg, cb),
+                (int(p["x"]), int(p["y"])), size)
 
     def _draw_carrier_hud(self, surface: pygame.Surface) -> None:
         """Draw the carrier's HUD: type label, HP bar, and timer bar.

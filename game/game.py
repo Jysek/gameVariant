@@ -95,6 +95,16 @@ class Game:
         self.font_tiny   = pygame.font.Font(None, 20)
         self.font_hud    = pygame.font.Font(None, 28)
 
+        # Pre-allocated surface for screen shake rendering (avoids per-frame allocation)
+        self._shake_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+
+        # Pre-allocated overlay surfaces (reused each frame to avoid allocation)
+        self._emp_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        self._bomb_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+
+        # HUD text caching to avoid re-rendering unchanged text every frame
+        self._hud_cache: dict[str, tuple[pygame.Surface, str]] = {}
+
         # Global state
         self.state: str            = "menu"
         self.selected_ship: int    = 0
@@ -788,7 +798,10 @@ class Game:
         self.asteroids = [a for a in self.asteroids if a.active]
 
     def _cleanup(self) -> None:
-        """Remove inactive entities from all lists."""
+        """Remove inactive entities from all lists.
+
+        Uses in-place filtering to reduce memory allocation.
+        """
         self.player_lasers    = [l for l in self.player_lasers    if l.active]
         self.enemy_lasers     = [l for l in self.enemy_lasers     if l.active]
         self.formation_groups = [g for g in self.formation_groups if not g.is_empty]
@@ -1516,8 +1529,8 @@ class Game:
         """Draw the main gameplay screen with all entities and HUD."""
         self.screen.fill(BLACK)
 
-        # Render to shake surface for screen shake effect
-        shake_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        # Reuse pre-allocated shake surface (avoids per-frame allocation)
+        shake_surf = self._shake_surf
         shake_surf.fill(BLACK)
         self.stars.draw(shake_surf)
 
@@ -1550,18 +1563,16 @@ class Game:
         # Apply screen shake offset
         self.screen.blit(shake_surf, (self._shake_offset_x, self._shake_offset_y))
 
-        # Visual effect overlays
+        # Visual effect overlays (reuse pre-allocated surfaces)
         if self._emp_flash > 0:
-            emp_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
             alpha = int(self._emp_flash * 6)
-            emp_overlay.fill((0, 200, 255, min(alpha, 80)))
-            self.screen.blit(emp_overlay, (0, 0))
+            self._emp_overlay.fill((0, 200, 255, min(alpha, 80)))
+            self.screen.blit(self._emp_overlay, (0, 0))
 
         if self._bomb_flash > 0:
-            bomb_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
             alpha = int(self._bomb_flash * 8)
-            bomb_overlay.fill((255, 255, 255, min(alpha, 120)))
-            self.screen.blit(bomb_overlay, (0, 0))
+            self._bomb_overlay.fill((255, 255, 255, min(alpha, 120)))
+            self.screen.blit(self._bomb_overlay, (0, 0))
 
         # Warning overlays
         if self.boss_warning:
@@ -1716,7 +1727,12 @@ class Game:
         self.screen.blit(kt, (16, SCREEN_HEIGHT - 34))
 
     def _draw_grace_countdown(self) -> None:
-        """Draw the grace period countdown overlay."""
+        """Draw the grace period countdown overlay.
+
+        Uses the pre-allocated overlay approach to avoid creating
+        a new Surface every frame. Font size is quantized to avoid
+        creating too many unique font objects.
+        """
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 120))
         self.screen.blit(overlay, (0, 0))
@@ -1725,7 +1741,9 @@ class Game:
         count_text = str(seconds_left) if seconds_left > 0 else "VIA!"
 
         pulse = 1.0 + 0.2 * abs(math.sin(self._grace_timer * 0.15))
-        font_size = int(90 * pulse)
+        # Quantize font size to reduce unique font object creation
+        font_size = int(90 * pulse) // 4 * 4
+        font_size = max(80, min(108, font_size))
         big_font = pygame.font.Font(None, font_size)
         ct = big_font.render(count_text, True, CYAN)
         self.screen.blit(
