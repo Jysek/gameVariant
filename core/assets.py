@@ -9,9 +9,9 @@ in singoli frame tramite Pillow (PIL) e convertite in Surface Pygame
 per il rendering in tempo reale.
 
 Gli sprite laser vengono puliti dall'alone semi-trasparente durante il
-caricamento per evitare rettangoli colorati quando i laser passano sopra
-carrier, nemici, boss o testi dell'HUD. La soglia alpha è alta (180) per
-eliminare completamente qualsiasi rettangolo semi-trasparente visibile.
+caricamento per evitare rettangoli colorati. La soglia alpha e alta (180)
+e dopo la scalatura tutti i pixel con alpha < 255 vengono azzerati per
+ottenere sprite binari (completamente opachi o completamente trasparenti).
 """
 
 import os
@@ -307,39 +307,24 @@ class Assets:
         """Carica tutti gli asset grafici dal disco.
 
         Questo metodo va chiamato una volta dopo ``pygame.display.set_mode()``
-        affinché ``convert_alpha()`` funzioni correttamente.
+        affinche ``convert_alpha()`` funzioni correttamente.
 
-        Cerca gli asset prima nella nuova struttura ``assets/`` e se non
-        trovata usa la vecchia struttura ``Assets/`` + ``LaserSprites/``.
+        Struttura directory attesa: assets/ con sottocartelle
+        ships/, enemies/, bosses/, sprites/, effects/, powerups/, lasers/.
         """
         if cls._loaded:
             return
 
         base = _base()
+        assets_dir = os.path.join(base, "assets")
 
-        # Supporta sia la nuova struttura (assets/) che la vecchia (Assets/)
-        new_assets = os.path.join(base, "assets")
-        old_assets = os.path.join(base, "Assets")
-        old_lasers = os.path.join(base, "LaserSprites")
-
-        # Determina i percorsi delle directory in base alla struttura presente
-        if os.path.isdir(os.path.join(new_assets, "ships")):
-            ships_dir    = os.path.join(new_assets, "ships")
-            enemies_dir  = os.path.join(new_assets, "enemies")
-            bosses_dir   = os.path.join(new_assets, "bosses")
-            sprites_dir  = os.path.join(new_assets, "sprites")
-            effects_dir  = os.path.join(new_assets, "effects")
-            powerups_dir = os.path.join(new_assets, "powerups")
-            laser_dir    = os.path.join(new_assets, "lasers")
-        else:
-            # Fallback alla vecchia struttura
-            ships_dir    = old_assets
-            enemies_dir  = old_assets
-            bosses_dir   = old_assets
-            sprites_dir  = old_assets
-            effects_dir  = old_assets
-            powerups_dir = old_assets
-            laser_dir    = old_lasers
+        ships_dir    = os.path.join(assets_dir, "ships")
+        enemies_dir  = os.path.join(assets_dir, "enemies")
+        bosses_dir   = os.path.join(assets_dir, "bosses")
+        sprites_dir  = os.path.join(assets_dir, "sprites")
+        effects_dir  = os.path.join(assets_dir, "effects")
+        powerups_dir = os.path.join(assets_dir, "powerups")
+        laser_dir    = os.path.join(assets_dir, "lasers")
 
         def img(directory: str, name: str,
                 size: tuple[int, int] | None = None) -> pygame.Surface:
